@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<title>Как очередь попадает на телефон</title>
+<!--
+  A scheme as a live page: who hands what to whom, case by case. Built from the kit's chain: the parts stand in
+  a row in the window on the Mac and one under another on the phone, and every word on it is a word of the
+  page, never of a drawing, so it is as large as the rest of the page at any width.
+-->
+<style>
+  :root { color-scheme: dark; --text: #F3F3F5; --soft: #A4A6B0; --faint: #6F717C; --raised: #24252B; --panel: #1A1B1F;
+          --line: #33343C; --ok: #34C759; --warn: #FF9F0A; --stop: #FF5A52; --accent: #4C8DFF; --lit: #22304A; }
+  html, body { margin: 0; background: transparent; }
+  body { font: 12.5px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text);
+         padding: 8px 12px; -webkit-user-select: none; cursor: default; }
+  * { box-sizing: border-box; }
+  /* Cases to choose between: <div class="tabs"><button data-scene="…">Имя</button>…</div> */
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tabs button { font: inherit; font-size: 12px; color: var(--soft); background: var(--raised); border: 1px solid var(--line); border-radius: 8px;
+                 padding: 4px 7px; cursor: pointer; white-space: nowrap; }
+  .tabs button.on { color: var(--text); border-color: var(--accent); background: var(--lit); }
+  /* A chain: <div class="chain"><div class="part"><b>Кто</b><i>что это</i></div><div class="hop"></div>…</div>
+     A part is lit with class "on", a hop with data-way="on" (forward) or "back" and its number in data-step. */
+  .chain { display: flex; align-items: stretch; margin-top: 10px; }
+  .part { flex: 1 1 0; min-width: 0; padding: 7px 4px; border-radius: 8px; border: 1.2px solid var(--line); background: var(--raised);
+          text-align: center; color: var(--soft); }
+  .part b { display: block; font-weight: 500; }
+  .part i { display: block; font-style: normal; font-size: 10.5px; color: var(--faint); margin-top: 1px; }
+  .part.on { border-color: var(--accent); background: var(--lit); color: var(--text); }
+  .part.on i { color: var(--soft); }
+  .part.away { border-style: dashed; background: transparent; }
+  .part.hidden, .hop.hidden { display: none; }
+  .hop { flex: none; width: 26px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #4A4C57; line-height: 1; }
+  .hop::before { content: attr(data-step); font-size: 11px; font-weight: 700; color: var(--accent); height: 12px; }
+  .hop::after { content: "→"; font-size: 15px; }
+  .hop[data-way=back]::after { content: "←"; }
+  .hop[data-way=on], .hop[data-way=back] { color: var(--accent); }
+  .say { margin-top: 10px; padding: 7px 10px; border-radius: 8px; background: var(--raised); border-left: 3px solid var(--accent); }
+  .say b { display: block; font-size: 13.5px; font-weight: 600; }
+  .say p { margin: 3px 0 0; color: var(--soft); }
+  /* A narrow page, the phone's: the parts stand one under another, and a hop points down or up. */
+  @media (max-width: 420px) {
+    .tabs button { font-size: 12.5px; padding: 5px 9px; }
+    .chain { flex-direction: column; }
+    .part { flex: none; display: flex; align-items: baseline; gap: 8px; text-align: left; padding: 7px 10px; }
+    .part i { margin: 0; font-size: 11.5px; }
+    .hop { width: auto; height: 22px; flex-direction: row; gap: 6px; }
+    .hop::before { height: auto; }
+    .hop::after { content: "↓"; }
+    .hop[data-way=back]::after { content: "↑"; }
+  }
+</style>
+<div class="tabs">
+  <button data-scene="ask">Чат спросил</button>
+  <button data-scene="phone">Ответ с телефона</button>
+  <button data-scene="mac">Ответ в окне</button>
+  <button data-scene="away">Никого за Маком</button>
+  <button data-scene="empty">Очередь пуста</button>
+</div>
+<div class="chain">
+  <div class="part" id="chat"><b>Чат</b><i>агент</i></div>
+  <div class="hop" id="chat-queue"></div>
+  <div class="part" id="queue"><b>Очередь</b><i>папка на Маке</i></div>
+  <div class="hop" id="queue-window"></div>
+  <div class="part" id="window"><b>Окно</b><i>на Маке</i></div>
+  <div class="hop" id="window-link"></div>
+  <div class="part" id="link"><b>Связь</b><i>процесс на Маке</i></div>
+  <div class="hop" id="link-apple"></div>
+  <div class="part" id="apple"><b>Apple</b><i>уведомления</i></div>
+  <div class="hop" id="link-phone"></div>
+  <div class="part" id="phone"><b>Конвейер</b><i>на телефоне</i></div>
+</div>
+<div class="say"><b id="head"></b><p id="text"></p></div>
+<script>
+  // In the check window `hitl.set` hands what is shown to the chat, with his answer.
+  // Opened in a browser, the page works the same and tells nobody.
+  var hitl = window.hitl || window.conveyor || { set: function () {} };
+  // A case: the parts that take part, and the hops in the order they are made, each forward or back.
+  var scenes = {
+    ask: { name: 'Чат спросил', parts: ['chat', 'queue', 'window', 'link', 'phone'],
+           hops: [['chat-queue', 'on'], ['queue-window', 'on'], ['window-link', 'on'], ['link-phone', 'on']],
+           head: 'Вопрос приходит на оба экрана сразу',
+           text: 'Чат кладёт проверку в очередь. Окно показывает её на Маке, а процесс связи отправляет ту же проверку в приложение на телефоне.' },
+    phone: { name: 'Ответ с телефона', parts: ['phone', 'link', 'window', 'queue', 'chat'],
+             hops: [['link-phone', 'back'], ['window-link', 'back'], ['queue-window', 'back'], ['chat-queue', 'back']],
+             head: 'Кнопка на телефоне нажимается в окне',
+             text: 'Приложение говорит «нажат ответ 1 в пункте 2». Процесс связи передаёт это окну, окно отмечает ответ так же, как от цифры, и кладёт итог в папку, откуда его забирает чат.' },
+    mac: { name: 'Ответ в окне', parts: ['window', 'link', 'phone'],
+           hops: [['window-link', 'on'], ['link-phone', 'on']],
+           head: 'Телефон показывает то же, что окно',
+           text: 'Окно отметило ответ и перешло к следующему пункту. Процесс связи сообщает это приложению, и на телефоне открыт тот же пункт с тем же ответом.' },
+    away: { name: 'Никого за Маком', parts: ['queue', 'link', 'apple', 'phone'], apple: true,
+            hops: [['link-apple', 'on'], ['link-phone', 'on']],
+            head: 'Уведомление идёт через Apple',
+            text: 'Проверка ждёт, мышь и клавиатуру Мака минуту никто не трогал, приложение закрыто. Процесс связи просит Apple показать уведомление; тап по нему открывает эту проверку.' },
+    empty: { name: 'Очередь пуста', parts: [], away: ['window', 'link'], hops: [],
+             head: 'Окно и процесс связи уходят сами',
+             text: 'Отвечать не на что: окно закрывается через 20 секунд, процесс связи через 30. Приложение пишет «Проверок нет». С новой проверкой оба поднимаются снова.' }
+  };
+  function show(key) {
+    var scene = scenes[key];
+    document.querySelectorAll('.tabs button').forEach(function (tab) { tab.classList.toggle('on', tab.dataset.scene === key); });
+    document.querySelectorAll('.part').forEach(function (part) {
+      part.classList.toggle('on', scene.parts.indexOf(part.id) >= 0);
+      part.classList.toggle('away', (scene.away || []).indexOf(part.id) >= 0);
+    });
+    // Apple stands in the chain only where a notification goes through it.
+    document.getElementById('apple').classList.toggle('hidden', !scene.apple);
+    document.getElementById('link-apple').classList.toggle('hidden', !scene.apple);
+    document.querySelectorAll('.hop').forEach(function (hop) { hop.removeAttribute('data-way'); hop.removeAttribute('data-step'); });
+    scene.hops.forEach(function (made, number) {
+      var hop = document.getElementById(made[0]);
+      hop.setAttribute('data-way', made[1]);
+      hop.setAttribute('data-step', number + 1);
+    });
+    document.getElementById('head').textContent = scene.head;
+    document.getElementById('text').textContent = scene.text;
+    hitl.set({ 'показано': scene.name });
+  }
+  document.querySelectorAll('.tabs button').forEach(function (tab) { tab.addEventListener('click', function () { show(tab.dataset.scene); }); });
+  show('ask');
+</script>
+</html>

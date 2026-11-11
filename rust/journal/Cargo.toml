@@ -1,0 +1,13 @@
+[package]
+name = "hitl-journal"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+hitl-compat-json = { path = "../compat-json" }
+rusqlite = "=0.40.2"
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+sha2 = "0.10"
+libc = "0.2"

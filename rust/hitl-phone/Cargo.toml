@@ -1,0 +1,21 @@
+[package]
+name = "hitl-phone"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+hitl-host-core = { path = "../hitl-host-core" }
+hitl = { path = "../hitl" }
+libc = "=0.2.191"
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
+# TLS: the phone at home trusts this Mac's own certificate by its print, and the server's room is reached by wss. Nothing
+# without a TLS library does either; ring is rustls's own and gives the seal its HMAC, hashes and random bytes too.
+ring = "=0.17.14"
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "=1.0.11"
+
+[dev-dependencies]
+# The two-screens delay probe (examples/two-screens-delay.rs) measures the queue of the phone through its own loop.
+hitl-queues = { path = "../hitl-queues" }

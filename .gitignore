@@ -1,0 +1,17 @@
+.DS_Store
+.build/
+.swiftpm/
+
+# The local runner of Cloudflare keeps its own files beside the server.
+relay/.wrangler/
+
+# Cargo builds the crates of rust/ here when run in their folder; conveyor merge refuses a checkout with it.
+rust/*/target/
+rust/target/
+*.xcuserstate
+xcuserdata/
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision

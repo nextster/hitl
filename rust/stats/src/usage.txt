@@ -1,0 +1,22 @@
+Usage:
+  hitl stats [--days N] [--comments] [--json]
+
+  What the reviewer did not understand in the checks that ended, on the Mac and on the phone: every
+  «не понял» with the item it was said to, the check, the chat and the agent, newest first, and
+  the counts over them. Read it before changing how chats ask him: a rule for every chat goes to
+  him first, as a plan he answers «да» or «нет».
+
+  --days N    The last N days; 7 when not given, 0 for everything that is kept.
+              Under the counts: what each chat took of him, its checks, items and minutes, the
+              longest first. He wanted that count in this report only, not in the window.
+  --comments  His other comments as well, under the same heads.
+  --json      The same as JSON, an item a line, for a chat to read.
+
+An item counts as not understood when he answered «не понял» (the key 0) or «не понятно» (to an
+explanation), or wrote it in his own words in the comment. The text of an item is kept since
+2026-10-11; of an older check only his comment is.
+
+Under the counts the report lists the words he asked about in a comment («что за X», «что такое X»),
+each with how many times: a word goes into the refusals of `hitl check` only on his «да».
+--json adds to an item what it offered, where the history kept it (since 2026-11-03): options,
+many, details, facts and the number of links, copies and images.

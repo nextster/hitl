@@ -1,0 +1,41 @@
+hitl: what a chat needs from the reviewer, and the hardware every chat shares, one thing at a time.
+
+Usage:
+  hitl setup --name NAME  Set the reviewer name and install the shared skill.
+  hitl check ...       A check in the window on the Mac: a plan before big work, a question,
+                           a result, something only he can do.
+  hitl iphone ...      A build on the shared iPhone: for his hand check (--check) or for the
+                           caller's own run (--probe).
+  hitl phone [pair]    The window's queue in the companion iPhone app: what is known of
+                           it; `pair` puts the Mac's address and key on the phone that is on the cable.
+  hitl queue           What is in front of him and what waits: the window on the Mac, the
+                           phone, the test runs on the Mac that take turns.
+                           First, the answers he gave the calling chat that it has not read.
+                           --watch draws it again every second, with test progress; --brief prints a compact summary.
+  hitl wait [ID|TAG]   Wait for a check and print its verdict; the caller's own newest when
+                           none is named. A chat of the Codex app does not wait: the verdict of
+                           its check comes to it as a message.
+  hitl drop [ID|TAG]   Take a check back, the caller's own when none is named. --note TEXT
+                           says why; --force, on his word only, drops another chat's check.
+  hitl last-check --branch BRANCH [--screen mac|iphone]
+                           The check of a branch that ended last, as JSON; exit 1 when none.
+  hitl stats           What he did not understand in the checks that ended, and what he wrote:
+                           every «не понял» with the item it was said to. --help says the rest.
+  hitl journal         The bounded action journal's SQLite file and retention policy.
+  hitl package build|release
+                           hitl, the check window for his team: its archive, and on his word in the
+                           chat its release in nextster/hitl-releases and its formula in his tap.
+  hitl update          Bring the folder every chat runs these tools from to what is merged
+                           into main: after a change of the tools themselves is merged.
+  hitl test            Run every check of this project.
+  hitl install         Put the links, the skills and the settings in place and say what is
+                           missing. `--window-ok`, run by him, lets Claude Code's auto mode hear
+                           what he answered in the window.
+  hitl note            Not for a chat to call: the command Claude Code runs after a Bash call
+                           (a PostToolUse hook) once he has switched it on. After a call that
+                           printed the verdict of the chat's own check, it tells auto mode what
+                           he answered.
+
+`hitl check --help`, and `hitl iphone --help` say the rest.
+ios-run.sh asks this command before it uses shared hardware: `hitl gate`, or the same
+program under the name ios-run-gate.

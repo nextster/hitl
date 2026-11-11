@@ -1,0 +1,13 @@
+[package]
+name = "hitl-stats"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+hitl-compat-json = { path = "../compat-json" }
+libc = "=0.2.191"
+serde_json = "=1.0.154"
+num-bigint = "=0.5.1"
+num-traits = "=0.2.19"

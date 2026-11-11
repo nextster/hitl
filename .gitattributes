@@ -1,0 +1,3 @@
+# Two branches that each add a decision at the end of the journal merge without a conflict: both parts stay.
+# On 2026-10-15 that conflict held the merges of a tree of chats («EXCLUSIVE DOCS RELEASE»).
+docs/decisions.md merge=union
