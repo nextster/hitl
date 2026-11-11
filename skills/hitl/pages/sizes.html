@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<title>Размеры окна проверок</title>
+<!--
+  Sliders for the sizes of the check window, with a drawing of the window that follows them. The drawing is made
+  here, in HTML: it is not the window. What he takes goes into window/Model.swift (panelWidth, side), Look.swift
+  (Face.question) and Views.swift (the height of a Row); the sliders start from what stands there.
+-->
+<style>
+  /* The kit: the window's own colours and sizes. The page lies on a dark card as wide as the window's column: 604 points. */
+  :root { color-scheme: dark; --text: #F3F3F5; --soft: #A4A6B0; --faint: #6F717C; --raised: #24252B; --panel: #1A1B1F;
+          --line: #33343C; --ok: #34C759; --warn: #FF9F0A; --stop: #FF5A52; --accent: #4C8DFF; }
+  html, body { margin: 0; background: transparent; }
+  body { font: 12.5px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text);
+         padding: 8px 12px; -webkit-user-select: none; cursor: default; }
+  * { box-sizing: border-box; }
+  /* A switch: <label class="row"><span>Текст</span><input type="checkbox" data-name="имя"><i></i></label> */
+  .row { display: flex; align-items: center; justify-content: space-between; height: 24px; gap: 10px; position: relative; }
+  .row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row input { position: absolute; opacity: 0; pointer-events: none; }
+  .row i { flex: none; width: 30px; height: 18px; border-radius: 9px; border: 1.5px solid var(--faint); position: relative; transition: border-color .12s; }
+  .row i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--faint); transition: transform .12s, background .12s; }
+  .row input:checked + i { border-color: var(--accent); }
+  .row input:checked + i::after { transform: translateX(12px); background: var(--accent); }
+  /* A slider: <div class="slide"><span>Текст</span><input type="range" min="0" max="10" value="5" data-name="имя"><b></b></div> */
+  .slide { display: flex; align-items: center; height: 24px; gap: 10px; }
+  .slide span { flex: none; width: 118px; }
+  .slide input { flex: 1; min-width: 0; accent-color: var(--accent); margin: 0; }
+  .slide b { flex: none; width: 28px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+  /* What comes of it: <div class="outcome" data-tone="ok|warn|stop|accent"><b>Итог</b><p>Почему</p></div> */
+  .outcome { margin-top: 6px; padding: 6px 10px 7px; border-radius: 8px; background: var(--raised); border-left: 3px solid var(--tone); min-height: 58px; }
+  .outcome[data-tone=ok] { --tone: var(--ok); } .outcome[data-tone=accent] { --tone: var(--accent); }
+  .outcome[data-tone=warn] { --tone: var(--warn); } .outcome[data-tone=stop] { --tone: var(--stop); }
+  .outcome b { display: block; font-size: 15px; font-weight: 600; color: var(--tone); }
+  .outcome p { margin: 2px 0 0; font-size: 11.5px; color: var(--soft); }
+  .preview { margin-top: 6px; height: 104px; overflow: hidden; display: flex; justify-content: center; }
+  .window { flex: none; align-self: flex-start; transform: scale(.6); transform-origin: top center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+  .head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--soft); height: 18px; }
+  .head i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); } .head em { margin-left: auto; font-style: normal; color: var(--accent); }
+  .question { font-weight: 600; margin: 8px 0; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .answer { display: flex; align-items: center; justify-content: space-between; font-size: 14px; padding: 0 8px 0 12px; border-radius: 9px; }
+  .answer.chosen { background: var(--raised); box-shadow: inset 3px 0 0 var(--accent); }
+  .answer kbd { font: 500 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; color: var(--soft); }
+</style>
+<div class="slide"><span>Ширина окна</span><input type="range" min="380" max="900" step="10" value="620" data-name="ширина"><b></b></div>
+<div class="slide"><span>Поля по краям</span><input type="range" min="2" max="28" step="1" value="8" data-name="поля"><b></b></div>
+<div class="slide"><span>Размер вопроса</span><input type="range" min="12" max="24" step="1" value="15" data-name="вопрос"><b></b></div>
+<div class="slide"><span>Высота ответа</span><input type="range" min="22" max="48" step="1" value="30" data-name="ответ"><b></b></div>
+<div class="preview"><div class="window">
+  <div class="head"><i></i>r/62 · Бары внизу<em>вопрос</em></div>
+  <div class="question">Футер менять плавно или сразу?</div>
+  <div class="answer">Плавно<kbd>1</kbd></div><div class="answer chosen">Сразу<kbd>2</kbd></div><div class="answer">Другое, напишу сам<kbd>3</kbd></div>
+</div></div>
+<script>
+  // In the check window `hitl.set` hands what is set on the page to the chat, with his answer.
+  // Opened in a browser, the page works the same and tells nobody.
+  var hitl = window.hitl || window.conveyor || { set: function () {} };
+
+  function draw() {
+    var set = {};
+    document.querySelectorAll('.slide input').forEach(function (slider) {
+      set[slider.dataset.name] = +slider.value;
+      slider.nextElementSibling.textContent = slider.value;
+    });
+    var drawn = document.querySelector('.window');
+    drawn.style.width = set['ширина'] + 'px';
+    // The drawing is as large as fits: on the phone the page is half as wide as in the window on the Mac.
+    drawn.style.transform = 'scale(' + Math.min(.6, (document.querySelector('.preview').clientWidth - 2) / set['ширина']) + ')';
+    drawn.style.padding = '12px ' + set['поля'] + 'px';
+    document.querySelector('.question').style.fontSize = set['вопрос'] + 'px';
+    document.querySelectorAll('.answer').forEach(function (answer) { answer.style.height = set['ответ'] + 'px'; });
+    hitl.set(set);
+  }
+  document.addEventListener('input', draw);
+  draw();
+</script>
+</html>

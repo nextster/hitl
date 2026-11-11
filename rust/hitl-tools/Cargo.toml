@@ -1,0 +1,17 @@
+[package]
+name = "hitl-tools"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+hitl-claude = { path = "../hitl-claude" }
+hitl-host-core = { path = "../hitl-host-core" }
+hitl-distribution = { path = "../hitl-distribution" }
+hitl-journal = { path = "../journal" }
+hitl-queues = { path = "../hitl-queues" }
+hitl = { path = "../hitl" }
+hitl-stats = { path = "../stats" }
+libc = "=0.2.191"
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }

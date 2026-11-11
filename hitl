@@ -1,0 +1,117 @@
+#!/bin/sh
+# hitl: one command for what a chat needs from the reviewer and from the hardware the chats share.
+#
+# This script builds the program of rust/hitl-host once per version of its source and of the crates it depends on
+# (offline, into ~/Library/Caches/hitl-host-core) and hands the call to it. hitl is Rust through and through: his
+# «полностью удалить питон» of 2026-10-28, and «Файл hitl в корне становится коротким скриптом: собирает
+# программу на Rust и запускает её». Where Rust cannot be built, it says so and stops: there is nothing else to run.
+
+unset HITL_CORE  # called by its name, by a chat or by the window: hitl as a whole, not its window's part
+file=$0
+while [ -L "$file" ]; do
+    link=$(readlink "$file")
+    case $link in /*) file=$link ;; *) file=$(dirname "$file")/$link ;; esac
+done
+root=$(cd "$(dirname "$file")" && pwd -P)
+fail() { echo "hitl: $1" >&2; exit 1; }
+
+crate=$root/rust/hitl-host
+cargo=$(command -v cargo || ls "$HOME"/.cargo/bin/cargo "$HOME"/.rustup/toolchains/*/bin/cargo 2>/dev/null | head -n 1)
+[ -n "$cargo" ] || fail "нужен установленный Rust (cargo), а его на этом Маке нет"
+[ -d "$crate" ] || fail "нет $crate"
+cache=${XDG_CACHE_HOME:-$HOME/Library/Caches}/hitl-host
+# The version is a digest of every source of the workspace in rust/, read by one process. It is kept for this folder in
+# a stamp, which stands while no file or folder there has changed since it was made: by the time of change of the file
+# itself (ctime), which nothing sets back, so a copy that keeps an old time of change is seen too. A call took a
+# second and more when it read each file by a process of its own and every call did; now it is a look at the times.
+key=$(printf %s "$root" | cksum | cut -d' ' -f1)
+stamp=$cache/stamps/$key
+digest=
+if [ -f "$stamp" ] && [ -z "$(cd "$root" && find rust -name target -prune -o -cnewer "$stamp" -print -quit 2>/dev/null)" ]; then
+    digest=$(cat "$stamp" 2>/dev/null)
+fi
+if [ -z "$digest" ]; then
+    mkdir -p "$cache/stamps" || fail "не создать $cache"
+    since=$cache/stamps/.since.$$
+    : >"$since"  # its time is before the reading: a file changed meanwhile is newer than the stamp
+    sources=$(cd "$root" && find rust -name target -prune -o -type f -name '*.rs' -print -o -type f -name 'Cargo.*' -print | LC_ALL=C sort)
+    digest=$(cd "$root" && tail -n +1 -- $sources | shasum -a 256 | cut -c1-24)
+    printf '%s\n' "$digest" >"$stamp.$$" && touch -r "$since" "$stamp.$$" && mv -f "$stamp.$$" "$stamp"
+    rm -f "$since"
+fi
+built=$cache/$digest/release/hitl-host
+# What runs is a copy of what cargo built, signed with his Developer ID where this Mac has one: the Mac's firewall lets
+# signed software be reached from the home network without asking, and `hitl phone` listens there (his «да» of
+# 2026-10-28, item 7 of the plan of the move). The copy is put in place whole, signed or not, and only then is run.
+program=$cache/$digest/signed/hitl-host
+if [ ! -x "$program" ]; then
+    mkdir -p "$cache" || fail "не создать $cache"
+    # One build at a time, whoever asks and of whatever version: two builds at once would take every core twice. A lock
+    # left by a build that died is let go after ten minutes.
+    waited=0
+    until mkdir "$cache/.lock-build" 2>/dev/null; do
+        [ -x "$program" ] && break
+        waited=$((waited + 1))
+        [ $waited -gt 3000 ] && rmdir "$cache/.lock-build" 2>/dev/null
+        sleep 0.2
+    done
+    if [ ! -x "$program" ] && [ ! -x "$built" ]; then
+        echo "==> Собираю программу hitl (один раз на версию)." >&2
+        # Into one folder of cargo for every version of this folder's sources, and the program copied out: with a
+        # folder per version every change of a source built every crate it depends on from nothing, a minute or more
+        # each time. A folder of cargo is this folder's own: in one workspace cargo names what it built by the paths
+        # inside it and tells what is fresh by the times of the files, so another copy of the project could be handed
+        # this one's build. The folders of copies that are gone go.
+        target=$cache/targets/$key
+        mkdir -p "$target" && printf '%s\n' "$root" >"$target/ROOT"
+        for other in "$cache"/targets/*/ROOT; do
+            [ -f "$other" ] && [ ! -d "$(cat "$other")" ] && rm -rf "$(dirname "$other")"
+        done
+        # The one folder every copy shared before: what still builds into it is older code, and it goes when that has
+        # not built for two days.
+        if [ -d "$cache/target" ] && [ -z "$(find "$cache/target/release/hitl-host" -mtime -2 2>/dev/null)" ]; then
+            rm -rf "$cache/target"
+        fi
+        build() {
+            CARGO_TARGET_DIR=$target CARGO_NET_OFFLINE=true "$cargo" build --release --locked --offline --quiet --manifest-path "$crate/Cargo.toml" >"$cache/$digest.log" 2>&1 &&
+                mkdir -p "$cache/$digest/release" && cp "$target/release/hitl-host" "$built.$$" && mv -f "$built.$$" "$built"
+        }
+        if ! build; then
+            # Crates the local cache lacks are fetched once (only a failure that names --offline is one for it).
+            if grep -q -e '--offline' "$cache/$digest.log"; then
+                (unset CARGO_NET_OFFLINE; "$cargo" fetch --locked --manifest-path "$crate/Cargo.toml" >>"$cache/$digest.log" 2>&1) && build
+            fi
+            [ -x "$built" ] || tail -n 30 "$cache/$digest.log" >&2
+        fi
+    fi
+    if [ ! -x "$program" ] && [ -x "$built" ]; then
+        mkdir -p "$cache/$digest/signed"
+        copy=$cache/$digest/signed/.hitl-host.$$
+        cp "$built" "$copy"
+        identity=$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Developer ID Application: / { print $2; exit }')
+        if [ -n "$identity" ]; then
+            # A keychain that asks for his password would hold every call here: a minute, then it runs unsigned.
+            codesign --force --sign "$identity" --identifier hitl --timestamp=none "$copy" >>"$cache/$digest.log" 2>&1 &
+            signer=$!
+            (sleep 60 && kill "$signer") >/dev/null 2>&1 &
+            guard=$!
+            wait "$signer" || cp "$built" "$copy"
+            kill "$guard" 2>/dev/null
+            wait "$guard" 2>/dev/null  # the shell would say «Terminated» of it otherwise
+        fi
+        mv -f "$copy" "$program"
+    fi
+    rmdir "$cache/.lock-build" 2>/dev/null
+    [ -x "$program" ] || fail "программа не собралась; журнал сборки: $cache/$digest.log"
+fi
+command=${HITL_COMMAND:-$root/hitl}
+if [ -z "${HITL_HOME:-}" ]; then
+    if [ -n "${CONVEYOR_HOME:-}" ]; then HITL_HOME=$CONVEYOR_HOME
+    elif [ -d "$HOME/.hitl" ] || [ ! -d "$HOME/.conveyor" ]; then HITL_HOME=$HOME/.hitl
+    else HITL_HOME=$HOME/.conveyor
+    fi
+fi
+export CONVEYOR_HOME="$HITL_HOME"
+export HITL_TOOL=hitl-host HITL_ROOT="$root" HITL_ENTRY="$root/hitl" HITL_HOOK="$root/hitl" HITL_COMMAND="$command"
+export HITL_PROGRAM="$program" CONVEYOR_ARGV0="$(basename "$0")" CONVEYOR_CALLED_AS="$0"
+exec "$program" "$@"

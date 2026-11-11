@@ -1,0 +1,11 @@
+[package]
+name = "hitl-claude"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+hitl-host-core = { path = "../hitl-host-core" }
+hitl = { path = "../hitl" }
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<title>Живая страница: заготовка</title>
+<!--
+  A live page for an item of `hitl check`: --page FILE.html.
+  One file, whole in itself: no network, no other files, no links. He turns it with the mouse only; the keys
+  stay the window's, so no text fields. It is as wide as the window's column, 604 points, and as tall as its content, 300 at most.
+  Say what is set on it with hitl.set({name: value}) at the start and at every change: the names are
+  what he reads under the page and what the chat gets, so they are short words of his language. A number goes
+  as it is, true and false as «да» and «нет», a text up to 40 characters; twelve names at most.
+-->
+<style>
+  /* The kit: the window's own colours and sizes. The page lies on a dark card as wide as the window's column: 604 points. */
+  :root { color-scheme: dark; --text: #F3F3F5; --soft: #A4A6B0; --faint: #6F717C; --raised: #24252B; --panel: #1A1B1F;
+          --line: #33343C; --ok: #34C759; --warn: #FF9F0A; --stop: #FF5A52; --accent: #4C8DFF; }
+  html, body { margin: 0; background: transparent; }
+  body { font: 12.5px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text);
+         padding: 8px 12px; -webkit-user-select: none; cursor: default; }
+  * { box-sizing: border-box; }
+  /* A switch: <label class="row"><span>Текст</span><input type="checkbox" data-name="имя"><i></i></label> */
+  .row { display: flex; align-items: center; justify-content: space-between; height: 24px; gap: 10px; position: relative; }
+  .row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row input { position: absolute; opacity: 0; pointer-events: none; }
+  .row i { flex: none; width: 30px; height: 18px; border-radius: 9px; border: 1.5px solid var(--faint); position: relative; transition: border-color .12s; }
+  .row i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--faint); transition: transform .12s, background .12s; }
+  .row input:checked + i { border-color: var(--accent); }
+  .row input:checked + i::after { transform: translateX(12px); background: var(--accent); }
+  /* A slider: <div class="slide"><span>Текст</span><input type="range" min="0" max="10" value="5" data-name="имя"><b></b></div> */
+  .slide { display: flex; align-items: center; height: 24px; gap: 10px; }
+  .slide span { flex: none; width: 118px; }
+  .slide input { flex: 1; min-width: 0; accent-color: var(--accent); margin: 0; }
+  .slide b { flex: none; width: 28px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+  /* What comes of it: <div class="outcome" data-tone="ok|warn|stop|accent"><b>Итог</b><p>Почему</p></div> */
+  .outcome { margin-top: 6px; padding: 6px 10px 7px; border-radius: 8px; background: var(--raised); border-left: 3px solid var(--tone); min-height: 58px; }
+  .outcome[data-tone=ok] { --tone: var(--ok); } .outcome[data-tone=accent] { --tone: var(--accent); }
+  .outcome[data-tone=warn] { --tone: var(--warn); } .outcome[data-tone=stop] { --tone: var(--stop); }
+  .outcome b { display: block; font-size: 15px; font-weight: 600; color: var(--tone); }
+  .outcome p { margin: 2px 0 0; font-size: 11.5px; color: var(--soft); }
+</style>
+<label class="row"><span>Что-то включено</span><input type="checkbox" data-name="включено" checked><i></i></label>
+<div class="slide"><span>Сколько</span><input type="range" min="1" max="10" value="3" data-name="сколько"><b></b></div>
+<div class="outcome" data-tone="ok"><b></b><p></p></div>
+<script>
+  // In the check window `hitl.set` hands what is set on the page to the chat, with his answer.
+  // Opened in a browser, the page works the same and tells nobody.
+  var hitl = window.hitl || window.conveyor || { set: function () {} };
+
+  function draw() {
+    var on = document.querySelector('[data-name="включено"]').checked;
+    var many = +document.querySelector('[data-name="сколько"]').value;
+    document.querySelector('.slide b').textContent = many;
+    var outcome = document.querySelector('.outcome');
+    outcome.dataset.tone = on ? 'ok' : 'warn';
+    outcome.querySelector('b').textContent = on ? 'Будет ' + many : 'Не будет ничего';
+    outcome.querySelector('p').textContent = on ? 'Одна фраза о том, почему так.' : 'Одна фраза о том, чего он этим лишится.';
+    hitl.set({'включено': on, 'сколько': many});
+  }
+  document.addEventListener('input', draw);
+  draw();
+</script>
+</html>

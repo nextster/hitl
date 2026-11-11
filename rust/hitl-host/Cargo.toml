@@ -1,0 +1,20 @@
+[package]
+name = "hitl-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[[bin]]
+name = "hitl-host"
+path = "src/main.rs"
+
+[dependencies]
+hitl = { path = "../hitl" }
+hitl-host-core = { path = "../hitl-host-core" }
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
+hitl-phone = { path = "../hitl-phone" }
+hitl-queues = { path = "../hitl-queues" }
+hitl-tools = { path = "../hitl-tools" }
+hitl-claude = { path = "../hitl-claude" }
+hitl-distribution = { path = "../hitl-distribution" }

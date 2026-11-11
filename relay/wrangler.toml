@@ -1,0 +1,15 @@
+# The server where the Mac and the phone meet when they are not in one network.
+# `hitl phone relay up` deploys it to your Cloudflare account with this file; nothing here is a secret.
+name = "hitl-relay"
+main = "worker.js"
+compatibility_date = "2026-06-01"
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+# A room keeps one flag, whether the Mac left with nothing in its queue; the free plan has rooms of this kind.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

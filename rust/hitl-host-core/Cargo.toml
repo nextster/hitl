@@ -1,0 +1,16 @@
+[package]
+name = "hitl-host-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+hitl = { path = "../hitl" }
+hitl-journal = { path = "../journal" }
+libc = "=0.2.191"
+sha2 = "=0.10.9"
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
+
+[dev-dependencies]
+rusqlite = "=0.40.2"
