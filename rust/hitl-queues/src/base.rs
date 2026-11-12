@@ -211,6 +211,7 @@ pub mod testing {
             std::fs::create_dir_all(&folder).unwrap();
             let mut sandbox = Sandbox { folder: folder.clone(), saved: Vec::new(), _turn: turn };
             let home = folder.join("state");
+            sandbox.set("HITL_HOME", home.to_str().unwrap());
             sandbox.set("CONVEYOR_HOME", home.to_str().unwrap());
             for (key, value) in [("CONVEYOR_NO_DISPATCHER", "1"), ("CONVEYOR_WINDOW", ""), ("CONVEYOR_NOTIFY", "0"),
                                  ("CONVEYOR_CHAT", ""), ("CONVEYOR_MAC_TEST_SCAN", "0"), ("CONVEYOR_NO_MESSENGER", "1")] {

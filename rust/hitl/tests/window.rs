@@ -39,6 +39,30 @@ fn snap(case: &Case, name: &str) -> String {
 // --------------------------------------------------------------------------
 // The chat's name in the head
 
+#[test]
+fn a_direct_window_uses_the_same_default_lock_as_the_cli() {
+    use std::os::fd::AsRawFd;
+    for legacy in [false, true] {
+        let case = Case::new(if legacy { "legacy-lock" } else { "modern-lock" });
+        std::fs::create_dir_all(case.user.join(".hitl")).unwrap();
+        let chosen = case.user.join(if legacy { ".conveyor" } else { ".hitl" });
+        std::fs::create_dir_all(chosen.join("window")).unwrap();
+        let lock = std::fs::File::create(chosen.join("window/panel.lock")).unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+        let script = case.at("steps");
+        std::fs::write(&script, dump(&case, "duplicate.json")).unwrap();
+        let done = std::process::Command::new(window_support::panel()).env_clear()
+            .env("HOME", &case.user).env("PATH", "/usr/bin:/bin").env("CONVEYOR_JOURNAL", "0")
+            .env("CONVEYOR_WINDOW_SCRIPT", script).env("CONVEYOR_COMMAND", window_support::HITL)
+            .output().unwrap();
+        assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+        assert!(!case.at("duplicate.json").exists(), "a second window ran despite the canonical lock");
+        for name in [".hitl", ".conveyor"] {
+            assert!(!case.user.join(name).join("window/panel.pid").exists(), "a second window acquired {name}");
+        }
+    }
+}
+
 /// The port of `test_shared_chat_name_on_signed_private_window_without_input_events`, without its signed private
 /// bundle: the name hitl keeps for a chat of Claude stands in the head (`check --presentation`, called back by
 /// the window), the chat's exact link is offered, the presses of the phone end the check, and the verdict keeps
@@ -245,6 +269,22 @@ const PAGE: &str = r#"<!doctype html><meta charset="utf-8"><body style="margin:0
   document.addEventListener('input', draw);
   draw();
 </script>"#;
+
+#[test]
+fn a_live_page_keeps_utf8_with_a_late_or_missing_charset() {
+    for charset in ["", "<meta charset=\"utf-8\">"] {
+        let case = Case::new(if charset.is_empty() { "no-charset" } else { "late-charset" });
+        let page = case.root.join("страница.html");
+        let html = format!("<!doctype html><head><style>/*{}*/</style></head>{charset}<p>Все темы</p>\n\
+                            <script>hitl.set({{'подпись': document.querySelector('p').textContent}});</script>", "x".repeat(8000));
+        std::fs::write(&page, html).unwrap();
+        case.queue(&["--title", "Кодировка", "--check", "1. Русский текст", "--page", page.to_str().unwrap()]);
+        case.play(&[dump(&case, "page.json")]);
+        let shown = case.seen("page.json");
+        assert_eq!(shown["livePageReady"], true);
+        assert_eq!(shown["sent"], "Уйдёт чату с ответом: подпись Все темы");
+    }
+}
 
 #[test]
 fn a_live_page_reaches_no_network_and_goes_nowhere() {

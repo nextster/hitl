@@ -12,6 +12,25 @@ fn path(place: &Path) -> String {
     place.display().to_string()
 }
 
+#[test]
+fn every_cli_keeps_the_existing_queue_when_both_default_homes_exist() {
+    for mode in ["", "hitl-host"] {
+        for legacy in [false, true] {
+            let mut world = World::new(&format!("default-home-{mode}-{legacy}"));
+            world.unset("HITL_HOME");
+            world.unset("CONVEYOR_HOME");
+            world.set("HITL_TOOL", mode);
+            let user = world.root.join("user");
+            std::fs::create_dir_all(user.join(".hitl")).unwrap();
+            if legacy { std::fs::create_dir_all(user.join(".conveyor")).unwrap(); }
+            let id = world.check(&["--title", "Очередь", "--check", "1. Проверка", "--no-wait"]).id();
+            let chosen = if legacy { ".conveyor" } else { ".hitl" };
+            assert!(user.join(chosen).join("queue").join(format!("{id}.json")).is_file(), "{mode}: {chosen}, {id}");
+            if legacy { assert!(!user.join(".hitl/queue").exists()); }
+        }
+    }
+}
+
 /// `urllib.parse.quote(text, safe="")`.
 fn quoted(text: &str) -> String {
     text.bytes().map(|byte| if byte.is_ascii_alphanumeric() || b"_.-~".contains(&byte) { (byte as char).to_string() } else { format!("%{byte:02X}") })

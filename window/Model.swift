@@ -3,7 +3,12 @@
 import Foundation
 
 let environment = ProcessInfo.processInfo.environment
-let home = URL(fileURLWithPath: environment["CONVEYOR_HOME"] ?? (NSHomeDirectory() + "/.conveyor"))
+private let userHome = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+private let legacyHome = userHome + "/.conveyor"
+private var legacyIsDirectory: ObjCBool = false
+private let hasLegacyHome = FileManager.default.fileExists(atPath: legacyHome, isDirectory: &legacyIsDirectory) && legacyIsDirectory.boolValue
+let home = URL(fileURLWithPath: ["CONVEYOR_HOME", "HITL_HOME"].compactMap { environment[$0] }.first { !$0.isEmpty }
+                              ?? (hasLegacyHome ? legacyHome : userHome + "/.hitl"))
 /// What the window keeps for itself, apart from the checks: its lock and its process, what is marked in it, where it stands.
 let windowDirectory = home.appendingPathComponent("window")
 let queueDirectory = home.appendingPathComponent("queue")

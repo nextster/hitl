@@ -140,12 +140,18 @@ final class LivePage: NSView, WKNavigationDelegate {
             // Without its fence a page is not shown at all.
             guard let rules else { return }
             self.web.configuration.userContentController.add(rules)
-            let file = URL(fileURLWithPath: self.path)
-            self.web.loadFileURL(file, allowingReadAccessTo: file)
+            self.loadPage()
         }
     }
 
     required init?(coder: NSCoder) { fatalError("the window is built in code") }
+
+    private func loadPage() {
+        let file = URL(fileURLWithPath: path)
+        guard let data = try? Data(contentsOf: file) else { log("the page \(path) could not be read"); return }
+        // A generated page can put its charset after WebKit's initial encoding scan.
+        web.load(data, mimeType: "text/html", characterEncodingName: "utf-8", baseURL: file)
+    }
 
     override var intrinsicContentSize: NSSize { NSSize(width: contentWidth, height: tall) }
 
@@ -185,8 +191,7 @@ final class LivePage: NSView, WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         log("the page \(path) lost its process: loading it again")
         isReady = false
-        let file = URL(fileURLWithPath: path)
-        web.loadFileURL(file, allowingReadAccessTo: file)
+        loadPage()
     }
 
     fileprivate func heard(_ body: Any) {

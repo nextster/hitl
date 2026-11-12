@@ -71,7 +71,8 @@ impl Case {
         let home = home.canonicalize().expect("a home");
         let mut case = Case { pushes: home.join("pushes"), home, saved: Vec::new(), process: None, word: Value::Null, _serial: serial };
         let cards = case.home.join("vault/cards").display().to_string();
-        for (name, value) in [("CONVEYOR_HOME", case.home.display().to_string().as_str()), ("CONVEYOR_WINDOW", ""), ("CONVEYOR_NOTIFY", "0"),
+        for (name, value) in [("HITL_HOME", case.home.display().to_string().as_str()),
+                              ("CONVEYOR_HOME", case.home.display().to_string().as_str()), ("CONVEYOR_WINDOW", ""), ("CONVEYOR_NOTIFY", "0"),
                               ("CONVEYOR_CHAT", "r/66 · API для плагина"), ("CONVEYOR_CARDS", &cards), ("CONVEYOR_CODEX", ""),
                               ("CONVEYOR_PHONE_NAME", "mac"), ("CONVEYOR_PHONE_HOSTS", "localhost"), ("CONVEYOR_PHONE_PAIR", "0")] {
             case.set(name, Some(value));
@@ -1473,12 +1474,15 @@ fn window_program(case: &mut Case) -> PathBuf {
         let lock = std::fs::File::create(kept.join("build.lock")).expect("a lock");
         unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX) };
         let own = std::env::var("CONVEYOR_HOME").ok();
+        let own_hitl = std::env::var("HITL_HOME").ok();
         case.set("CONVEYOR_HOME", Some(&kept.display().to_string()));
+        case.set("HITL_HOME", Some(&kept.display().to_string()));
         let mut sources: Vec<PathBuf> = std::fs::read_dir(root().join("window")).expect("the window's sources").flatten()
             .map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "swift")).collect();
         sources.sort();
         let built = hitl::window::built_panel(&sources, false);
         case.set("CONVEYOR_HOME", own.as_deref());
+        case.set("HITL_HOME", own_hitl.as_deref());
         built.unwrap_or_else(|said| panic!("the window does not build: {said}"))
     }).clone()
 }

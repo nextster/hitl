@@ -54,7 +54,7 @@ pub fn home() -> PathBuf {
     let home = user_home();
     let current = home.join(".hitl");
     let legacy = home.join(".conveyor");
-    if is_host() && !current.exists() && legacy.is_dir() { legacy } else { current }
+    if legacy.is_dir() { legacy } else { current }
 }
 
 /// The program the window calls back (`check --presentation`, `journal _stream`): hitl's own entry when
