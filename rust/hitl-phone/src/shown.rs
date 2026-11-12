@@ -127,10 +127,10 @@ fn interval() -> u64 {
 /// looked up at once.
 fn presentation(ticket: &Value, interval: u64) -> Value {
     static CACHE: Mutex<Option<(u64, HashMap<String, Value>)>> = Mutex::new(None);
-    let identity: Map<String, Value> = ["agent", "chatIds", "chatRef", "cwd", "project", "chat"].iter()
+    let identity: Map<String, Value> = ["agent", "chatIds", "chatRef", "t3Base", "cwd", "project", "chat"].iter()
         .map(|key| (key.to_string(), ticket.get(*key).cloned().unwrap_or(Value::Null))).collect();
     let environment: Map<String, Value> = ["CONVEYOR_HOME", "CONVEYOR_CLAUDE_SESSIONS_DIR", "CONVEYOR_CLAUDE_PROJECTS_DIR",
-                                           "CONVEYOR_CODEX_STATE", "CONVEYOR_OPENCODE_STATE", "XDG_DATA_HOME"].iter()
+                                           "CONVEYOR_CODEX_STATE", "CONVEYOR_OPENCODE_STATE", "XDG_DATA_HOME", "T3CODE_HOME"].iter()
         .filter_map(|key| Some((key.to_string(), json!(std::env::var(key).ok()?)))).collect();
     let identity = word::sorted_dump(&json!([identity, environment]));
     let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -226,7 +226,7 @@ pub fn shown_at(raw: &Value, interval: u64) -> Value {
     // имени проекта только символом»). The phone has no way to this Mac's apps: the window keeps the icon of each as
     // a file, and the phone asks for it as for an item's picture. No file, and the app is said by its name.
     let agent = py::or(ticket.get("agent"), json!(""));
-    let icon = agent.as_str().filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric()))
+    let icon = agent.as_str().filter(|name| *name == "T3 Code" || (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())))
         .map(|name| word::remote_folder().join("icons").join(format!("{name}.png")));
     let app_icon = icon.filter(|icon| is_file(icon)).map(|icon| icon.display().to_string()).unwrap_or_default();
     let mut one = Map::new();

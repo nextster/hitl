@@ -12,6 +12,21 @@ use std::sync::OnceLock;
 
 static ARCHIVE: OnceLock<PathBuf> = OnceLock::new();
 
+#[test]
+fn the_source_launcher_keeps_the_legacy_queue_even_if_hitl_home_was_created() {
+    let folder = Folder::new("default-home");
+    let mut settings = environment(&folder.0);
+    settings.remove("HITL_HOME");
+    settings.remove("CONVEYOR_HOME");
+    let user = PathBuf::from(&settings["HOME"]);
+    for name in [".hitl", ".conveyor"] { std::fs::create_dir_all(user.join(name)).unwrap(); }
+    let done = hitl(&["check", "--title", "Очередь", "--about", "Проверка выбора очереди.", "--check", "1. Проверка", "--no-wait"],
+                    &settings, &folder.0);
+    assert_eq!(done.code, 75, "{}{}", done.out, done.err);
+    assert_eq!(std::fs::read_dir(user.join(".conveyor/queue")).unwrap().count(), 1);
+    assert!(!user.join(".hitl/queue").exists());
+}
+
 /// The folder of the archive goes when the tests end.
 extern "C" fn remove_archive() {
     if let Some(folder) = ARCHIVE.get() {

@@ -294,6 +294,9 @@ fn submit(queue: &Queue, given: &Submission) -> Result<Value, String> {
             "progress": {"marked": 0, "updatedAt": null}, "result": null, "error": null, "attempts": 0,
             "identity": identity, "chatIds": bridge::chat_ids(),
         });
+        if let Some(base) = environment.get("T3CODE_HOME").filter(|path| !path.is_empty()) {
+            ticket["t3Base"] = json!(base);
+        }
         let mut launch_arguments: Vec<String> = given.app_arguments.clone();
         if overlay {
             launch_arguments.splice(0..0, [CHECKLIST_ARGUMENT.to_string(), items::checklist_payload(&ticket)]);

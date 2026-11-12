@@ -71,7 +71,8 @@ impl Case {
         let home = home.canonicalize().expect("a home");
         let mut case = Case { pushes: home.join("pushes"), home, saved: Vec::new(), process: None, word: Value::Null, _serial: serial };
         let cards = case.home.join("vault/cards").display().to_string();
-        for (name, value) in [("CONVEYOR_HOME", case.home.display().to_string().as_str()), ("CONVEYOR_WINDOW", ""), ("CONVEYOR_NOTIFY", "0"),
+        for (name, value) in [("HITL_HOME", case.home.display().to_string().as_str()),
+                              ("CONVEYOR_HOME", case.home.display().to_string().as_str()), ("CONVEYOR_WINDOW", ""), ("CONVEYOR_NOTIFY", "0"),
                               ("CONVEYOR_CHAT", "r/66 · API для плагина"), ("CONVEYOR_CARDS", &cards), ("CONVEYOR_CODEX", ""),
                               ("CONVEYOR_PHONE_NAME", "mac"), ("CONVEYOR_PHONE_HOSTS", "localhost"), ("CONVEYOR_PHONE_PAIR", "0")] {
             case.set(name, Some(value));
@@ -575,7 +576,7 @@ fn the_app_a_check_came_from_goes_to_the_phone_as_its_icon() {
     // going without it. The phone has no way to the Mac's apps: the window keeps each app's icon as a file.
     let mut case = Case::bridge();
     let mut tickets = Vec::new();
-    for agent in ["OpenCode", "Codex", "../../phone/pair"] {
+    for agent in ["OpenCode", "T3 Code", "Codex", "../../phone/pair"] {
         let title = format!("От {}", agent.chars().take(8).collect::<String>());
         let id = case.queue(&["--title", &title, "--check", "1. Раз"]);
         case.change(&id, |ticket| ticket["agent"] = json!(agent));
@@ -584,6 +585,7 @@ fn the_app_a_check_came_from_goes_to_the_phone_as_its_icon() {
     let icons = case.home.join("window/remote/icons");
     std::fs::create_dir_all(&icons).unwrap();
     std::fs::write(icons.join("OpenCode.png"), png()).unwrap();
+    std::fs::write(icons.join("T3 Code.png"), png()).unwrap();
     std::fs::write(case.home.join("phone/pair.png"), png()).unwrap(); // not an icon, whatever a check calls its agent
     case.window_says(json!({"active": tickets[0], "order": tickets, "marks": [{"label": "1", "note": ""}]}));
     case.serve();
@@ -591,9 +593,10 @@ fn the_app_a_check_came_from_goes_to_the_phone_as_its_icon() {
     let seen: HashMap<String, String> = caller.queue(any).expect("the queue")["checks"].as_array().unwrap().iter()
         .map(|one| (one["agent"].as_str().unwrap().to_string(), one["appIcon"].as_str().unwrap().to_string())).collect();
     assert_eq!(PathBuf::from(&seen["OpenCode"]).canonicalize().unwrap(), icons.join("OpenCode.png").canonicalize().unwrap());
+    assert_eq!(PathBuf::from(&seen["T3 Code"]).canonicalize().unwrap(), icons.join("T3 Code.png").canonicalize().unwrap());
     // An app this Mac has no icon of is said by its name, and so is whatever a check calls its agent.
     assert_eq!((seen["Codex"].as_str(), seen["../../phone/pair"].as_str()), ("", ""));
-    caller.say(&json!({"get": seen["OpenCode"], "id": 1}));
+    caller.say(&json!({"get": seen["T3 Code"], "id": 1}));
     let got = caller.hear(|word| word["file"] == json!(1), 8.0).expect("the icon");
     assert_eq!(codec::unbase64(got["data"].as_str().unwrap()).unwrap(), png());
     caller.say(&json!({"get": icons.join("Codex.png").display().to_string(), "id": 2}));
@@ -1471,12 +1474,15 @@ fn window_program(case: &mut Case) -> PathBuf {
         let lock = std::fs::File::create(kept.join("build.lock")).expect("a lock");
         unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX) };
         let own = std::env::var("CONVEYOR_HOME").ok();
+        let own_hitl = std::env::var("HITL_HOME").ok();
         case.set("CONVEYOR_HOME", Some(&kept.display().to_string()));
+        case.set("HITL_HOME", Some(&kept.display().to_string()));
         let mut sources: Vec<PathBuf> = std::fs::read_dir(root().join("window")).expect("the window's sources").flatten()
             .map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "swift")).collect();
         sources.sort();
         let built = hitl::window::built_panel(&sources, false);
         case.set("CONVEYOR_HOME", own.as_deref());
+        case.set("HITL_HOME", own_hitl.as_deref());
         built.unwrap_or_else(|said| panic!("the window does not build: {said}"))
     }).clone()
 }

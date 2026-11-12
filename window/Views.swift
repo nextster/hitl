@@ -670,7 +670,8 @@ final class Facts: NSView, NSTextViewDelegate, LinkedText {
 /// another's is kept here; an app this Mac does not have is said by its name, small.
 final class AppMark: NSView {
     /// The apps chats run in, by the name a check gives its agent.
-    private static let apps = ["Claude": "com.anthropic.claudefordesktop", "Codex": "com.openai.codex", "OpenCode": "ai.opencode.desktop"]
+    private static let apps = ["Claude": "com.anthropic.claudefordesktop", "Codex": "com.openai.codex",
+                               "OpenCode": "ai.opencode.desktop", "T3 Code": "com.t3tools.t3code"]
     private static var icons: [String: NSImage] = [:]
     private static let face = Face.small(11, .medium)
     /// As tall as the project's tag beside it, so that the head is of one height with an icon and without. An app's

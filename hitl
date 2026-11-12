@@ -107,11 +107,11 @@ fi
 command=${HITL_COMMAND:-$root/hitl}
 if [ -z "${HITL_HOME:-}" ]; then
     if [ -n "${CONVEYOR_HOME:-}" ]; then HITL_HOME=$CONVEYOR_HOME
-    elif [ -d "$HOME/.hitl" ] || [ ! -d "$HOME/.conveyor" ]; then HITL_HOME=$HOME/.hitl
-    else HITL_HOME=$HOME/.conveyor
+    elif [ -d "$HOME/.conveyor" ]; then HITL_HOME=$HOME/.conveyor
+    else HITL_HOME=$HOME/.hitl
     fi
 fi
-export CONVEYOR_HOME="$HITL_HOME"
+export HITL_HOME CONVEYOR_HOME="$HITL_HOME"
 export HITL_TOOL=hitl-host HITL_ROOT="$root" HITL_ENTRY="$root/hitl" HITL_HOOK="$root/hitl" HITL_COMMAND="$command"
 export HITL_PROGRAM="$program" CONVEYOR_ARGV0="$(basename "$0")" CONVEYOR_CALLED_AS="$0"
 exec "$program" "$@"

@@ -12,6 +12,25 @@ fn path(place: &Path) -> String {
     place.display().to_string()
 }
 
+#[test]
+fn every_cli_keeps_the_existing_queue_when_both_default_homes_exist() {
+    for mode in ["", "hitl-host"] {
+        for legacy in [false, true] {
+            let mut world = World::new(&format!("default-home-{mode}-{legacy}"));
+            world.unset("HITL_HOME");
+            world.unset("CONVEYOR_HOME");
+            world.set("HITL_TOOL", mode);
+            let user = world.root.join("user");
+            std::fs::create_dir_all(user.join(".hitl")).unwrap();
+            if legacy { std::fs::create_dir_all(user.join(".conveyor")).unwrap(); }
+            let id = world.check(&["--title", "Очередь", "--check", "1. Проверка", "--no-wait"]).id();
+            let chosen = if legacy { ".conveyor" } else { ".hitl" };
+            assert!(user.join(chosen).join("queue").join(format!("{id}.json")).is_file(), "{mode}: {chosen}, {id}");
+            if legacy { assert!(!user.join(".hitl/queue").exists()); }
+        }
+    }
+}
+
 /// `urllib.parse.quote(text, safe="")`.
 fn quoted(text: &str) -> String {
     text.bytes().map(|byte| if byte.is_ascii_alphanumeric() || b"_.-~".contains(&byte) { (byte as char).to_string() } else { format!("%{byte:02X}") })
@@ -313,6 +332,24 @@ fn drop_ends_a_waiting_check_without_a_verdict() {
     // The history keeps what was asked and by which agent, of a check nobody looked at too.
     let kept = world.history().pop().unwrap();
     assert_eq!((kept["how"].clone(), kept["results"][0]["text"].clone(), kept.get("agent").is_some()), (json!("dropped"), json!("Пункт"), true));
+}
+
+#[test]
+fn a_t3_chat_can_drop_its_old_label_but_not_another_chats_check() {
+    let world = World::new("drop-t3");
+    let id = world.check(&["--title", "Вопрос", "--check", "1. Пункт", "--no-wait"]).id();
+    let mut ticket = world.ticket(&id);
+    ticket["agent"] = json!("T3 Code");
+    ticket["chat"] = json!("Начало задания");
+    ticket["chatIds"] = json!(["mcp:launch:owner"]);
+    std::fs::write(world.ticket_file(&id), ticket.to_string()).unwrap();
+
+    let foreign = world.run_with(&["drop", &id], &[("T3CODE_THREAD_ID", Some("mcp:launch:other"))]);
+    assert_eq!(foreign.code, 1);
+    assert!(world.ticket_file(&id).exists());
+    let owner = world.run_with(&["drop"], &[("T3CODE_THREAD_ID", Some("mcp:launch:owner"))]);
+    assert_eq!(owner.code, 0);
+    assert!(!world.ticket_file(&id).exists());
 }
 
 #[test]

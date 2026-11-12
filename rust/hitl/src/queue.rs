@@ -116,7 +116,19 @@ pub fn find(target: Option<&str>, own_tag: &str) -> Option<String> {
 
 /// A check of the window by its number or its chat; the caller's own newest when none is named (check.own).
 pub fn own(target: Option<&str>) -> Option<String> {
+    if target.is_none_or(str::is_empty) {
+        if let Some(thread) = common::var("T3CODE_THREAD_ID").filter(|id| !id.is_empty()) {
+            if let Some(ticket) = window::queued().into_iter().rev().find(|ticket| from_t3_thread(ticket, &thread)) {
+                return Some(common::text_of(&ticket, "id").to_string());
+            }
+        }
+    }
     find(target, &common::chat_tag())
+}
+
+fn from_t3_thread(ticket: &Value, thread: &str) -> bool {
+    common::text_of(ticket, "agent") == "T3 Code"
+        && common::list_of(ticket, "chatIds").iter().any(|id| id.as_str() == Some(thread))
 }
 
 /// The check itself, waiting or (unless `waiting`) ended (checks.in_window).
@@ -437,8 +449,13 @@ pub fn drop_command(arguments: &[String]) -> i32 {
 /// (checks.drop, the window's side).
 fn drop_target(target: Option<&str>, force: bool) -> i32 {
     if let Some(ticket) = in_window(target, true) {
-        let asker = common::chat_title(&common::env());
-        if !asker.is_empty() && !force && text_or_empty(ticket.get("chat")) != asker {
+        let foreign = if let Some(thread) = common::var("T3CODE_THREAD_ID").filter(|id| !id.is_empty()) {
+            !from_t3_thread(&ticket, &thread)
+        } else {
+            let asker = common::chat_title(&common::env());
+            !asker.is_empty() && text_or_empty(ticket.get("chat")) != asker
+        };
+        if foreign && !force {
             let tag = if truthy(ticket.get("tag")) { py_str(&ticket["tag"]) } else { "чат".into() };
             say(&format!("{tag} «{}» — проверка другого чата: убрать её может {}. Если {} прямо {} это сделать тебе, повтори с --force.",
                          text_or(&ticket, "title", ""), common::who(), common::he("он", "она"), common::did("сказал")));

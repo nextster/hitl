@@ -10,7 +10,9 @@ fn entry() -> PathBuf {
 }
 
 fn run(home: &Path, words: &[&str]) -> Output {
-    Command::new(entry()).args(words).env("CONVEYOR_HOME", home).env("CONVEYOR_WINDOW", "").env("CONVEYOR_NOTIFY", "0")
+    Command::new(entry()).args(words).env("HITL_HOME", home).env("CONVEYOR_HOME", home)
+        .env("CONVEYOR_WINDOW", "").env("CONVEYOR_NOTIFY", "0").env("CONVEYOR_NO_MESSENGER", "1")
+        .env_remove("T3CODE_THREAD_ID").env("CONVEYOR_CHAT", "Проверка очереди")
         .env("CONVEYOR_JOURNAL", "0").stdin(Stdio::null()).output().expect("hitl")
 }
 
