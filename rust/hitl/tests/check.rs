@@ -316,6 +316,24 @@ fn drop_ends_a_waiting_check_without_a_verdict() {
 }
 
 #[test]
+fn a_t3_chat_can_drop_its_old_label_but_not_another_chats_check() {
+    let world = World::new("drop-t3");
+    let id = world.check(&["--title", "Вопрос", "--check", "1. Пункт", "--no-wait"]).id();
+    let mut ticket = world.ticket(&id);
+    ticket["agent"] = json!("T3 Code");
+    ticket["chat"] = json!("Начало задания");
+    ticket["chatIds"] = json!(["mcp:launch:owner"]);
+    std::fs::write(world.ticket_file(&id), ticket.to_string()).unwrap();
+
+    let foreign = world.run_with(&["drop", &id], &[("T3CODE_THREAD_ID", Some("mcp:launch:other"))]);
+    assert_eq!(foreign.code, 1);
+    assert!(world.ticket_file(&id).exists());
+    let owner = world.run_with(&["drop"], &[("T3CODE_THREAD_ID", Some("mcp:launch:owner"))]);
+    assert_eq!(owner.code, 0);
+    assert!(!world.ticket_file(&id).exists());
+}
+
+#[test]
 fn a_drop_does_not_take_the_place_of_the_verdict_the_window_wrote_first() {
     // The audit of 2026-10-16, H03: the other order of the same second — the window has linked his verdict in
     // and not yet taken the ticket away when the chat drops the check.

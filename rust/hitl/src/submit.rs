@@ -1376,6 +1376,9 @@ pub fn submit(parsed: Value) -> Value {
     ticket.insert("agent".into(), json!(common::agent(&environment)));
     // The ids the chat's app gave the command: the app counts by them what waits from each chat.
     ticket.insert("chatIds".into(), json!(tell::chat_ids(&environment)));
+    if let Some(base) = environment.get("T3CODE_HOME").filter(|path| !path.is_empty()) {
+        ticket.insert("t3Base".into(), json!(base));
+    }
     ticket.insert("cwd".into(), json!(std::env::current_dir().map(|here| here.display().to_string()).unwrap_or_default()));
     ticket.insert("kind".into(), json!(kind));
     ticket.insert("kindTitle".into(), json!(kind_title(&kind).unwrap_or("")));

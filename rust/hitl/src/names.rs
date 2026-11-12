@@ -4,7 +4,7 @@
 //! The window (`window/CheckNames.swift`) hands the checks it shows as a JSON list on the input and takes one label
 //! for each: the chat's current name, the link that names the chat, and whether the chat was found as the one that
 //! asked. Nothing is written and no program of an app is started: the Claude app's records, the `claude` command's
-//! transcripts, Codex's and OpenCode's databases are only read, and the ticket keeps what it said when a lookup fails.
+//! transcripts and the Codex, OpenCode and T3 databases are only read. The ticket keeps what it said if lookup fails.
 //! What Python raises is kept apart as Python keeps it: what the lookups catch, and what ends its command (`Crash`),
 //! so that a broken record gives the same label, or the same failure, as `hitl check --presentation` gave.
 
@@ -994,6 +994,16 @@ fn lookup(ticket: &Map<String, Value>, app: &'static str, environment: &Env) -> 
 fn label(ticket: &Map<String, Value>, environment: &Env) -> Result<Label, String> {
     let chat = Py::of(ticket.get("chat")).or_empty();
     let fallback = |status: &str| Label { chat: chat.clone(), reference: String::new(), status: status.into() };
+    if ticket.get("agent").and_then(Value::as_str) == Some("T3 Code") {
+        let Some([id]) = ticket.get("chatIds").and_then(Value::as_array).map(Vec::as_slice) else {
+            return Ok(fallback("unidentified"));
+        };
+        let base = ticket.get("t3Base").and_then(Value::as_str).or_else(|| environment.get("T3CODE_HOME").map(String::as_str));
+        return Ok(match id.as_str().and_then(|id| common::t3_title(id, base)) {
+            Some(title) => Label { chat: Py::Json(Value::String(title)), reference: String::new(), status: "active".into() },
+            None => fallback("unavailable"),
+        });
+    }
     let app = match ticket.get("agent") {
         Some(Value::String(agent)) => APPS.iter().copied().find(|name| name == agent),
         _ => None,
@@ -1148,6 +1158,28 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn a_t3_check_uses_the_native_title_at_submission_and_after_rename() {
+        let fixture = Fixture::new("t3-title");
+        let base = fixture.root.join("custom t3 home");
+        let userdata = base.join("userdata");
+        std::fs::create_dir_all(&userdata).unwrap();
+        let db = rusqlite::Connection::open(userdata.join("statev2.sqlite")).unwrap();
+        db.execute_batch("create table orchestration_v2_projection_threads (thread_id text primary key, title text, deleted_at text);
+                          insert into orchestration_v2_projection_threads values ('mcp:launch:one', 'Заголовок в T3', null);").unwrap();
+        let mut environment = fixture.environment.clone();
+        environment.insert("T3CODE_THREAD_ID".into(), "mcp:launch:one".into());
+        environment.insert("T3CODE_HOME".into(), base.display().to_string());
+        assert_eq!(common::chat_title(&environment), "Заголовок в T3");
+
+        let check = json!({"agent": "T3 Code", "chatIds": ["mcp:launch:one"], "t3Base": base, "chat": "Начало задания"});
+        assert_eq!(fixture.label(check.clone())["chat"], "Заголовок в T3");
+        db.execute("update orchestration_v2_projection_threads set title = 'Новое имя'", []).unwrap();
+        assert_eq!(fixture.label(check.clone())["chat"], "Новое имя");
+        db.execute("update orchestration_v2_projection_threads set deleted_at = 'gone'", []).unwrap();
+        assert_eq!(fixture.label(check), json!({"chat": "Начало задания", "reference": "", "status": "unavailable"}));
     }
 
     #[test]

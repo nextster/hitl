@@ -512,7 +512,7 @@ impl Dispatcher {
             let title: String = Some(text(&current, "title")).filter(|title| !title.is_empty()).unwrap_or(text(&current, "tag")).chars().take(95).collect();
             let project = text(&current, "project");
             let mut ticket = json!({});
-            for key in ["tag", "chat", "chatLink", "agent", "chatIds", "project", "branch", "commit"] {
+            for key in ["tag", "chat", "chatLink", "agent", "chatIds", "t3Base", "project", "branch", "commit"] {
                 ticket[key] = current.get(key).cloned().unwrap_or(Value::Null);
             }
             ticket["screen"] = json!("mac");

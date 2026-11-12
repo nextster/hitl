@@ -575,7 +575,7 @@ fn the_app_a_check_came_from_goes_to_the_phone_as_its_icon() {
     // going without it. The phone has no way to the Mac's apps: the window keeps each app's icon as a file.
     let mut case = Case::bridge();
     let mut tickets = Vec::new();
-    for agent in ["OpenCode", "Codex", "../../phone/pair"] {
+    for agent in ["OpenCode", "T3 Code", "Codex", "../../phone/pair"] {
         let title = format!("От {}", agent.chars().take(8).collect::<String>());
         let id = case.queue(&["--title", &title, "--check", "1. Раз"]);
         case.change(&id, |ticket| ticket["agent"] = json!(agent));
@@ -584,6 +584,7 @@ fn the_app_a_check_came_from_goes_to_the_phone_as_its_icon() {
     let icons = case.home.join("window/remote/icons");
     std::fs::create_dir_all(&icons).unwrap();
     std::fs::write(icons.join("OpenCode.png"), png()).unwrap();
+    std::fs::write(icons.join("T3 Code.png"), png()).unwrap();
     std::fs::write(case.home.join("phone/pair.png"), png()).unwrap(); // not an icon, whatever a check calls its agent
     case.window_says(json!({"active": tickets[0], "order": tickets, "marks": [{"label": "1", "note": ""}]}));
     case.serve();
@@ -591,9 +592,10 @@ fn the_app_a_check_came_from_goes_to_the_phone_as_its_icon() {
     let seen: HashMap<String, String> = caller.queue(any).expect("the queue")["checks"].as_array().unwrap().iter()
         .map(|one| (one["agent"].as_str().unwrap().to_string(), one["appIcon"].as_str().unwrap().to_string())).collect();
     assert_eq!(PathBuf::from(&seen["OpenCode"]).canonicalize().unwrap(), icons.join("OpenCode.png").canonicalize().unwrap());
+    assert_eq!(PathBuf::from(&seen["T3 Code"]).canonicalize().unwrap(), icons.join("T3 Code.png").canonicalize().unwrap());
     // An app this Mac has no icon of is said by its name, and so is whatever a check calls its agent.
     assert_eq!((seen["Codex"].as_str(), seen["../../phone/pair"].as_str()), ("", ""));
-    caller.say(&json!({"get": seen["OpenCode"], "id": 1}));
+    caller.say(&json!({"get": seen["T3 Code"], "id": 1}));
     let got = caller.hear(|word| word["file"] == json!(1), 8.0).expect("the icon");
     assert_eq!(codec::unbase64(got["data"].as_str().unwrap()).unwrap(), png());
     caller.say(&json!({"get": icons.join("Codex.png").display().to_string(), "id": 2}));

@@ -92,6 +92,7 @@ struct Ticket: Codable {
     var tag: String
     var chatIds: [String]?
     var chatRef: String?
+    var t3Base: String?
     var chat: String?
     /// What opens that chat, when it has an address: one more thing to open, at every item («где диплинк в чат»).
     var chatLink: String?

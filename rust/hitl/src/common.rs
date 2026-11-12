@@ -613,6 +613,18 @@ fn first_line(text: &str) -> String {
     text.trim().lines().next().unwrap_or("").to_string()
 }
 
+/// A T3 thread's title comes from the orchestration projection, not its provider session.
+pub(crate) fn t3_title(thread: &str, base: Option<&str>) -> Option<String> {
+    let base = base.filter(|path| !path.is_empty()).map(PathBuf::from).unwrap_or_else(|| user_home().join(".t3"));
+    let connection = read_only(&base.join("userdata/statev2.sqlite"), 0.1).ok()?;
+    let title: String = connection.query_row(
+        "select title from orchestration_v2_projection_threads where thread_id = ? and deleted_at is null",
+        [thread], |row| row.get(0),
+    ).ok()?;
+    let title = first_line(&title);
+    (!title.is_empty()).then_some(title)
+}
+
 /// The title of the chat of OpenCode this process runs in, or "".
 pub fn opencode_title(environment: &Env) -> String {
     let mut chat = environment.get("OPENCODE_SESSION_ID").cloned().unwrap_or_default();
@@ -647,6 +659,9 @@ pub fn opencode_title(environment: &Env) -> String {
 pub fn chat_title(environment: &Env) -> String {
     if let Some(named) = environment.get("CONVEYOR_CHAT") {
         return named.trim().to_string();
+    }
+    if let Some(thread) = environment.get("T3CODE_THREAD_ID").filter(|id| !id.is_empty()) {
+        return t3_title(thread, environment.get("T3CODE_HOME").map(String::as_str)).unwrap_or_default();
     }
     for kept in claude_sessions(environment) {
         let title = text_of(&kept, "title").trim();
