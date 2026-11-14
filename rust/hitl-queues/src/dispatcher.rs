@@ -105,6 +105,9 @@ impl Shared {
     /// dropped.
     pub fn take(&self, active: &Value, report: Option<&Value>) {
         let Some(report) = report.filter(|report| report.get("id").is_some() && report.get("id") == active.get("id")) else { return };
+        let Ok(environment) = crate::private_launch_env::load(&self.queue, active) else { return };
+        let report = environment.redact_value(report);
+        let report = &report;
         let mut noting = locked(&self.noting);
         let known = noting.report.clone().filter(|known| known.get("id") == active.get("id"));
         if let Some(known) = &known {
@@ -140,6 +143,12 @@ impl Shared {
                 return;
             }
         }
+        let report = match &active {
+            Some(active) => match crate::private_launch_env::load(&self.queue, active) {
+                Ok(environment) => environment.redact_value(&report), Err(_) => return,
+            },
+            None => report,
+        };
         locked(&self.noting).spoken = Some(report.clone());
         if let Some(active) = active {
             self.take(&active, Some(&report));
@@ -615,6 +624,21 @@ impl Dispatcher {
         let _ = name;
         let queue = self.shared.queue.clone();
         let head_id = text(head, "id").to_string();
+        let validation = crate::private_launch_env::load(&queue, head);
+        if validation.is_err() {
+            queue.locked(|state| {
+                if let Some(i) = state["queue"].as_array().into_iter().flatten().position(|t| t.get("id") == head.get("id")) {
+                    let mut ticket = crate::base::list_mut(state, "queue").remove(i);
+                    ticket["state"] = json!("failed");
+                    ticket["finishedAt"] = json!(now());
+                    ticket["error"] = json!(crate::private_launch_env::ERROR);
+                    let _ = std::fs::remove_dir_all(queue.ticket_folder(text(&ticket, "id")).join("app"));
+                    archive(state, ticket);
+                }
+            });
+            return;
+        }
+        drop(validation);
         let lock = self.shared.device.lock_state();
         if lock != "unlocked" {
             self.device_blocked(head, &lock);
@@ -657,7 +681,19 @@ impl Dispatcher {
                 None
             };
             let arguments: Vec<String> = head["appArguments"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
-            (succeeded, message) = self.shared.device.launch(text(head, "bundleId"), &arguments, head.get("payloadUrl").and_then(Value::as_str), heard);
+            (succeeded, message) = queue.locked(|state| {
+                let waiting = state["queue"].as_array().into_iter().flatten().find(|t| t.get("id") == head.get("id"));
+                let Some(current) = waiting.filter(|t| *t == head || (t.get("bundleId") == head.get("bundleId") && t.get("launchEnvRef") == head.get("launchEnvRef"))) else {
+                    return (false, crate::private_launch_env::ERROR.to_string());
+                };
+                match crate::private_launch_env::load(&queue, current) {
+                    Ok(environment) => {
+                        let (ok, message) = self.shared.device.launch(text(head, "bundleId"), &arguments, head.get("payloadUrl").and_then(Value::as_str), heard, &environment);
+                        (ok, environment.redact(&message))
+                    },
+                    Err(error) => (false, error.to_string()),
+                }
+            });
         }
         let mut failed: Option<Value> = None;
         queue.locked(|state| {
@@ -797,7 +833,8 @@ pub fn command_dispatch(udid: &str) -> i32 {
     let Ok(Some(lock)) = FileLock::try_exclusive(&queue.folder.join("dispatcher.lock")) else { return 0 };
     unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) };
     println!("{} dispatcher {} started", bridge::timestamp(), std::process::id());
-    let held = Arc::new(Mutex::new(Some(lock)));
+    let Ok(Some(private_lock)) = FileLock::try_exclusive(&queue.folder.join("private-launch-v1.lock")) else { return 1 };
+    let held = Arc::new(Mutex::new(Some((lock, private_lock))));
     let released = held.clone();
     let udid_again = udid.to_string();
     let mut dispatcher = Dispatcher::new(queue, real_device(udid))

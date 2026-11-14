@@ -31,6 +31,8 @@ The host exposes two related workflows:
 - `hitl iphone --check` queues a build with its own checklist. The Swift package under `ConveyorCheck/` lets the app display that checklist and report answers.
 - `hitl phone` serves the Mac window's queue to the companion app under `demo/`. Build it with your own Apple signing configuration and use `hitl phone pair` to pair it over USB. A deployment of `relay/` is optional for access outside the local network.
 
+For app-supported disposable sign-in, `--launch-env-file` supplies private per-ticket child environment values. See [private launch input](docs/iphone-private-launch-input.md) for the file format and isolation guarantees.
+
 The build queue uses the executable named by `IOS_RUN_COMMAND` and the `ios-run-gate` link. The builder supplies a build-only result and uses the gate before touching shared hardware. For host setup, see `./hitl install --help`.
 
 ## State and development

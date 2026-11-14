@@ -197,8 +197,8 @@ impl Device for Counting {
     fn install(&self, app: &str) -> (bool, String) {
         self.inner.install(app)
     }
-    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>) -> (bool, String) {
-        self.inner.launch(bundle_id, arguments, url, heard)
+    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>, _environment: &crate::private_launch_env::LaunchEnvironment) -> (bool, String) {
+        self.inner.launch(bundle_id, arguments, url, heard, _environment)
     }
     fn hears(&self) -> bool {
         self.inner.hears()

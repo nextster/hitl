@@ -18,6 +18,7 @@ pub struct FakeState {
     pub installs: Vec<String>,
     /// (bundle id, arguments, url) of every launch.
     pub launches: Vec<(String, Vec<String>, Option<String>)>,
+    pub launch_environments: Vec<std::collections::BTreeMap<String, String>>,
     pub report: Option<Value>,
     pub install_result: (bool, String),
     /// What the Mac has put beside the app's marks, and whether the phone takes it.
@@ -38,7 +39,7 @@ impl FakeDevice {
     pub fn new() -> Arc<FakeDevice> {
         Arc::new(FakeDevice {
             state: Mutex::new(FakeState {
-                lock: "unlocked".into(), installs: Vec::new(), launches: Vec::new(), report: None,
+                lock: "unlocked".into(), installs: Vec::new(), launches: Vec::new(), launch_environments: Vec::new(), report: None,
                 install_result: (true, String::new()), told: Vec::new(), takes_files: true, heard: None, attached: false, launch_result: None,
             }),
         })
@@ -69,8 +70,9 @@ impl Device for FakeDevice {
         })
     }
 
-    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>) -> (bool, String) {
+    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>, _environment: &crate::private_launch_env::LaunchEnvironment) -> (bool, String) {
         self.with(|state| {
+            state.launch_environments.push(_environment.variables().clone());
             state.launches.push((bundle_id.to_string(), arguments.to_vec(), url.map(str::to_string)));
             state.attached = heard.is_some();
             state.heard = heard;

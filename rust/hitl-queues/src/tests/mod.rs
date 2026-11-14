@@ -8,3 +8,5 @@ mod the_queue;
 mod blocked_and_actions;
 mod on_the_mac_too;
 mod probes_and_terminal;
+
+mod private_launch;
