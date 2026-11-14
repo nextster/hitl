@@ -84,6 +84,7 @@ impl Queue {
         let mut state = self.load();
         let before = state.clone();
         let result = change(&mut state);
+        crate::private_launch_env::prune(self, &state);
         if state != before {
             self.save(&state);
         }
@@ -107,6 +108,7 @@ impl Queue {
         let Ok(log) = std::fs::OpenOptions::new().create(true).append(true).open(self.folder.join("dispatcher.log")) else { return };
         let Ok(errors) = log.try_clone() else { return };
         let mut child = std::process::Command::new(entry());
+        crate::private_launch_env::configure_child(&mut child, &Default::default());
         child.args(["_queues", "dispatch", "--udid", &self.udid])
             .stdin(std::process::Stdio::null()).stdout(log).stderr(errors);
         // Its own session: the chat's tool call may end, time out or be killed with its process group, and the queue
