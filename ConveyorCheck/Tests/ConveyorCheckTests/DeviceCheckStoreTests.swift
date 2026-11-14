@@ -39,6 +39,23 @@ private final class DefaultsOfOneTest: UserDefaults, @unchecked Sendable {
 
     private var hostLaunch: [String] { ["--ios-run-tag", "r/38 · nextster/dock", "--ios-run-checklist", Self.argument] }
 
+    @Test func preparationKeepsMetadataActiveWithoutPresenting() throws {
+        let check = DeviceCheck(id: "ours", tag: "test", title: "Test",
+                                items: [.init(label: "1", text: "Manual", setup: ["seed"])], requiresReadiness: true)
+        let encoded = try JSONEncoder().encode(check).base64EncodedString()
+        let store = launch(["--ios-run-checklist", encoded])
+        #expect(store.isActive)
+        #expect(store.check?.items.first?.setup == ["seed"])
+        #expect(!store.canPresentChecklist)
+        store.take(.init(id: "other", results: [], manualReady: true, manualReadyPID: ProcessInfo.processInfo.processIdentifier))
+        #expect(!store.canPresentChecklist)
+        store.take(.init(id: "ours", results: [], manualReady: true, manualReadyPID: ProcessInfo.processInfo.processIdentifier))
+        #expect(store.canPresentChecklist)
+        store.take(.init(id: "ours", results: [], finished: true, preparationError: "timeout"))
+        #expect(!store.canPresentChecklist)
+        #expect(store.preparationError == "timeout")
+    }
+
     /// What the host put beside the report.
     private func writeHost(_ json: String) throws {
         let url = directory.appendingPathComponent(DeviceCheckHost.relativePath)

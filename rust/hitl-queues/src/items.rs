@@ -201,6 +201,7 @@ pub fn checklist_payload(ticket: &Value) -> String {
     for key in ["id", "tag", "title", "items"] {
         body.insert(key.into(), ticket.get(key).cloned().unwrap_or(Value::Null));
     }
+    if ticket["preparation"].is_object() { body.insert("requiresReadiness".into(), json!(true)); }
     // Which of his projects the build is of, by the name he knows: the band says it first, as the window does.
     let project = ticket.get("project").and_then(Value::as_str).filter(|project| !project.is_empty());
     if let Some(project) = project {
@@ -215,7 +216,11 @@ pub fn checklist_payload(ticket: &Value) -> String {
 /// Whether the built app knows the argument: its name is a string in the binary. A build from a branch without the
 /// overlay is checked by word.
 pub fn app_supports_checklist(app_path: &Path) -> bool {
-    let needle = CHECKLIST_ARGUMENT.as_bytes();
+    app_supports_argument(app_path, CHECKLIST_ARGUMENT)
+}
+
+pub fn app_supports_argument(app_path: &Path, argument: &str) -> bool {
+    let needle = argument.as_bytes();
     let mut files = Vec::new();
     collect_files(app_path, &mut files);
     for path in files {

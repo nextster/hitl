@@ -34,6 +34,7 @@ A hand check:
                            checklist line, \"what to do → what should happen\";
                            repeat it per item. A leading \"3.\" or \"4a.\" stays
                            the item's number.
+  --prepare                Hide manual items until a fresh preparation ACK.
   --launch-env-file FILE   Private mode-600 JSON launch input (version, bundleID,
                            udid, variables). Its parent must be mode 700. Values
                            go only to this ticket’s device launch, never the build.
@@ -172,6 +173,7 @@ pub struct Call {
     pub items: Vec<String>,
     pub title: String,
     pub checklist: String,
+    pub prepare: bool,
     pub launch_env_file: String,
     pub checking: bool,
     pub probe: bool,
@@ -228,6 +230,7 @@ impl Call {
                     // Joined to the item's text with a unit separator; the queue splits it.
                     last.push_str(&format!("{FIELD_SEPARATOR}{name}={field}"));
                 }
+                "--prepare" => call.prepare = true,
                 "--launch-env-file" => call.launch_env_file = value(&mut index, "a private JSON file")?,
                 "--checklist" => {
                     call.checklist = value(&mut index, "a file")?;
@@ -431,6 +434,7 @@ pub fn check_arguments(call: &Call, product: &Value, chat: &str) -> Result<Vec<S
     if product.get("target").and_then(Value::as_str) != Some("device") {
         return die("--check and --probe are for a physical device.");
     }
+    if call.prepare { arguments.push("--prepare".into()); }
     if !call.launch_env_file.is_empty() {
         arguments.extend(["--launch-env-file".to_string(), call.launch_env_file.clone()]);
     }
@@ -599,6 +603,9 @@ pub enum Action {
 
 /// The order of the refusals is the order of the words a chat reads first.
 pub fn decide(call: &Call) -> Result<Action, Stop> {
+    if call.prepare && (call.launch_env_file.is_empty() || !call.checking || call.probe || !call.queue_command.is_empty()) {
+        return die("--prepare requires a protected iPhone check.");
+    }
     if !call.launch_env_file.is_empty() && (!call.checking || call.probe || !call.queue_command.is_empty()) {
         return die("--launch-env-file belongs only to --check or --checklist.");
     }

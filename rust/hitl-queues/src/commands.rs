@@ -245,6 +245,7 @@ struct Submission {
     url: String,
     app_arguments: Vec<String>,
     launch_env_file: String,
+    prepare: bool,
     force: bool,
 }
 
@@ -288,6 +289,10 @@ fn submit(queue: &Queue, given: &Submission) -> Result<Value, String> {
             && !crate::base::FileLock::held_elsewhere(&queue.folder.join("private-launch-v1.lock")) {
             return Err("Protected launch input needs the updated queue worker; finish the current check and retry.".to_string());
         }
+        if given.prepare && (!overlay || !items::app_supports_argument(source, "requiresReadiness") || given.launch_env_file.is_empty() || (queue.dispatcher_alive()
+            && !crate::base::FileLock::held_elsewhere(&queue.folder.join("preparation-v1.lock")))) {
+            return Err("Preparation requires a compatible checklist app, protected input and an updated dispatcher.".into());
+        }
         let ticket_id = new_ticket_id(state, &tag);
         let mut ticket = json!({
             "id": ticket_id, "tag": tag, "chat": hitl_host_core::chat_title(&environment), "chatLink": hitl_host_core::chat_link(&environment),
@@ -302,6 +307,7 @@ fn submit(queue: &Queue, given: &Submission) -> Result<Value, String> {
         if let Some(base) = environment.get("T3CODE_HOME").filter(|path| !path.is_empty()) {
             ticket["t3Base"] = json!(base);
         }
+        if given.prepare { ticket["preparation"] = json!({}); }
         let mut launch_arguments: Vec<String> = given.app_arguments.clone();
         if overlay {
             launch_arguments.splice(0..0, [CHECKLIST_ARGUMENT.to_string(), items::checklist_payload(&ticket)]);
@@ -487,6 +493,7 @@ fn command_check(given: &Given) -> i32 {
         branch: given.text("branch").to_string(), commit: given.text("commit").to_string(), project: given.text("project").to_string(),
         bundle_id: given.text("bundle-id").to_string(), app: given.text("app").to_string(), url: given.text("url").to_string(),
         launch_env_file: given.text("launch-env-file").to_string(),
+        prepare: given.flag("prepare"),
         app_arguments: given.words.clone(), force: given.flag("force"),
     };
     let ticket = match submit(&queue, &submission) {
@@ -1022,7 +1029,25 @@ pub fn run(arguments: &[String]) -> i32 {
         "chat-tag" => done(parse(command, rest, &[], NO_WORDS), &|_| command_chat_tag()),
         "check" => done(parse(command, rest, &[required("udid"), option("name"), option("core-id"), required("app"), required("bundle-id"),
             option("tag"), option("launch-tag"), option("branch"), option("commit"), option("project"), option("title"), repeated("item"),
-            option("checklist"), option("url"), option("launch-env-file"), flag("no-wait"), flag("force")], (0, None)), &command_check),
+            option("checklist"), option("url"), option("launch-env-file"), flag("prepare"), flag("no-wait"), flag("force")], (0, None)), &command_check),
+        "preparation" => done(parse(command, rest, &[required("udid"), required("operation"), required("receipt")], NO_WORDS), &|given| {
+            let queue = Queue::new(given.text("udid"));
+            let receipt = std::fs::File::open(given.text("receipt")).ok().and_then(|file| {
+                use std::io::Read;
+                let mut bytes = Vec::new();
+                file.take(16385).read_to_end(&mut bytes).ok()?;
+                if bytes.len() > 16384 { return None }
+                serde_json::from_slice::<Value>(&bytes).ok()
+            });
+            let accepted = receipt.is_some_and(|mut receipt| queue.locked(|state| {
+                if refuses_foreign(&state["active"], false, "изменить подготовку") { return false }
+                let Ok(environment) = crate::private_launch_env::load(&queue, &state["active"]) else { return false };
+                if given.text("operation") == "fail" { receipt = environment.redact_value(&receipt); }
+                crate::preparation::update(&mut state["active"], &queue.udid, given.text("operation"), &receipt, now())
+            }));
+            if !accepted { say("Preparation receipt rejected."); }
+            if accepted { 0 } else { 1 }
+        }),
         "wait" => done(parse(command, rest, &[option("udid")], (0, Some(1))), &command_wait),
         "probe-begin" => done(parse(command, rest, &[required("udid"), option("name"), option("core-id"), option("tag"), required("pid"),
             option("what"), flag("no-wait"), flag("force")], NO_WORDS), &command_probe_begin),

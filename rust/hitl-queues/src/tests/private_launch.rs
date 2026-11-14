@@ -313,3 +313,59 @@ fn report_file_and_attached_report_redact_strings_and_escaped_output_before_pers
         &std::fs::read_to_string(c.queue.ticket_folder(&id).join("verdict.json")).unwrap(),
     );
 }
+
+#[test]
+fn opted_in_producer_and_dispatcher_keep_one_hidden_ticket_until_ack() {
+    for outcome in ["ready", "fail", "timeout", "cancel"] {
+        let mut c = Case::new("private-preparation");
+        c.sandbox.unset("T3CODE_THREAD_ID");
+        let p = source(&c);
+        std::fs::write(c.app.join("readiness-marker"), b"\xcf\xfa\xed\xferequiresReadiness").unwrap();
+        let id = c.submit_as("Тест", &["1. Manual"], "", "prep",
+            &["--launch-env-file", p.to_str().unwrap(), "--prepare"]);
+        let queued = c.state()["queue"][0].clone();
+        assert!(queued["submittedAt"].is_number());
+        let snapshot = private_path(&c, &queued);
+        if outcome == "ready" {
+            c.dispatcher = Dispatcher::new(c.queue.clone(), c.device.clone()).with_sleep(|_| {});
+        }
+        c.step();
+        c.step();
+        assert_eq!(c.state()["active"]["id"], id);
+        assert!(c.device.with(|s| s.told.is_empty()));
+        assert!(!crate::state::window_ticket(&id).exists());
+        let now = crate::base::now();
+        let receipt = json!({"ticketID":id,"bundleID":queued["bundleId"],"udid":UDID,
+            "primaryUserID":"u","pid":1,"bootID":"b","epoch":0,"readyAt":now,
+            "fixtureInputsReady":true,"manualPanelReady":true,"phase":"process","exitCode":1,"errors":[]});
+        match outcome {
+            "ready" => {
+                c.queue.locked(|s| {
+                    assert!(crate::preparation::update(&mut s["active"], UDID, "delivered", &receipt, now));
+                    assert!(crate::preparation::update(&mut s["active"], UDID, "ack", &receipt, now));
+                });
+                c.step();
+                c.step();
+                assert_eq!(c.state()["active"]["id"], id);
+                assert_eq!(c.state()["active"]["items"], queued["items"]);
+                assert_eq!(c.device.with(|s| s.told[0]["manualReady"].clone()), true);
+                assert!(snapshot.exists());
+            }
+            "fail" => {
+                c.queue.locked(|s| assert!(crate::preparation::update(&mut s["active"], UDID, "fail", &receipt, now)));
+                c.step();
+            }
+            "timeout" => {
+                c.queue.locked(|s| s["active"]["installedAt"] = json!(now - 91.0));
+                c.step();
+            }
+            _ => { assert_eq!(c.run_cli(&["drop","--udid",UDID,"--force",&id]).0, 0); }
+        }
+        if outcome != "ready" {
+            assert!(c.state()["active"].is_null());
+            assert_eq!(c.state()["recent"][0]["state"], if outcome == "cancel" {"cancelled"} else {"failed"});
+            assert!(!snapshot.exists());
+        }
+        assert_no_secret(&c.state().to_string());
+    }
+}
