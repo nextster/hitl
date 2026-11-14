@@ -146,6 +146,13 @@ fn private_dir(path: &Path, create: bool) -> Result<File, &'static str> {
     }
     Ok(dir)
 }
+fn trusted_file(metadata: &std::fs::Metadata, owner: u32) -> bool {
+    metadata.is_file()
+        && metadata.uid() == owner
+        && metadata.mode() & 0o7777 == 0o600
+        && metadata.nlink() == 1
+        && metadata.len() <= LIMIT
+}
 fn read_at(dir: &File, name: &std::ffi::OsStr) -> Result<Value, &'static str> {
     use std::os::unix::ffi::OsStrExt;
     let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| ERROR)?;
@@ -162,12 +169,7 @@ fn read_at(dir: &File, name: &std::ffi::OsStr) -> Result<Value, &'static str> {
     }
     let mut file = unsafe { File::from_raw_fd(fd) };
     let m = file.metadata().map_err(|_| ERROR)?;
-    if !m.is_file()
-        || m.uid() != unsafe { libc::geteuid() }
-        || m.mode() & 0o7777 != 0o600
-        || m.nlink() != 1
-        || m.len() > LIMIT
-    {
+    if !trusted_file(&m, unsafe { libc::geteuid() }) {
         return Err(ERROR);
     }
     let mut bytes = Vec::new();
@@ -333,6 +335,22 @@ mod child_tests {
     use crate::device::{Device, Devicectl, Heard};
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn a_foreign_file_owner_is_rejected() {
+        let sandbox = Sandbox::new("private-owner");
+        let path = sandbox.folder.join("input.json");
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        let metadata = std::fs::metadata(path).unwrap();
+        let uid = unsafe { libc::geteuid() };
+        assert!(trusted_file(&metadata, uid));
+        assert!(!trusted_file(&metadata, uid ^ 1));
+    }
 
     #[test]
     fn actual_fake_children_get_only_current_values_both_launch_branches_and_redact_early_errors() {
