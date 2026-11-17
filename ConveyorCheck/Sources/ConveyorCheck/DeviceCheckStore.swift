@@ -103,7 +103,12 @@ public final class DeviceCheckStore {
         }
     }
 
-    /// Whether there is a checklist to show.
+    public private(set) var preparationError: String?
+    private var manualReady = false
+    /// Host permission for the human-facing UI. Preparation still uses isActive.
+    public var canPresentChecklist: Bool { isActive && (check?.requiresReadiness != true || manualReady) }
+
+    /// Whether the checklist context is active.
     public var isActive: Bool { check != nil && report?.isFinished == false }
 
     /// What the panel offers to do for the items: the host may offer the same.
@@ -141,6 +146,9 @@ public final class DeviceCheckStore {
     /// What the host said, from its file or from a line on the app's input.
     public func take(_ host: DeviceCheckHost) {
         guard isActive, let check, host.id == check.id else { return }
+        if let error = host.preparationError { preparationError = error }
+        if host.manualReady == true, host.manualReadyPID == ProcessInfo.processInfo.processIdentifier { manualReady = true }
+        guard canPresentChecklist || host.finished else { return }
         change { $0.take(host, now: now()) }
         // The tester moved to another item at the host: the one-at-a-time view goes there too.
         if let current = report?.current, current != currentLabel {

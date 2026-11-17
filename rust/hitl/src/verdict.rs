@@ -252,6 +252,8 @@ pub fn is_mixed(verdict: &Value) -> bool {
 /// What he answered to an item, in the words of the item's kind.
 pub fn answer_of(entry: &Value, kind: Option<&str>) -> String {
     if is_unclear(entry) {
+        if truthy(entry.get("visualize")) { return "просит визуализировать вопрос".into(); }
+        if kind == Some("checklist") || kind.is_none() { return "шаг непонятен".into(); }
         return UNCLEAR.to_lowercase();
     }
     let choice = chosen(entry);
@@ -430,6 +432,9 @@ pub fn verdict_text(verdict: &Value, compact: bool) -> String {
         if !unclear.is_empty() {
             lines.push(if compact { "«Не понял» — не «нет»: переформулируй эти пункты; остальные ответы в силе.".into() } else { unclear_advice() });
         }
+        if results.iter().any(|entry| is_unclear(entry) && truthy(entry.get("visualize"))) {
+            lines.push("Для пунктов с отметкой «Визуализировать» покажи проблему и варианты на схеме или интерактивной странице в повторной проверке.".into());
+        }
         // Where an item is likely to come to him again, the chat is told how to bring his answer along.
         let again = !unclear.is_empty() || !done
             || results.iter().any(|entry| state_of(entry) == Some("problem") && !truthy(entry.get("question")));
@@ -528,7 +533,9 @@ pub fn said_before(verdict: &Value) -> Value {
         let kind = if on_mac { kind_of(entry, verdict) } else { None };
         let at = if truthy(verdict.get("finishedAt")) { verdict["finishedAt"].clone() } else { json!(common::now()) };
         let answer = if state.is_none() { String::new() } else { answer_of(entry, kind.as_deref()) };
-        said.insert(label(entry), json!({"at": at, "answer": answer, "note": note}));
+        let mut before = json!({"at": at, "answer": answer, "note": note});
+        if let Some(text) = entry.get("text").and_then(Value::as_str) { before["text"] = json!(text); }
+        said.insert(label(entry), before);
     }
     Value::Object(said)
 }

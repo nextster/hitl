@@ -35,7 +35,7 @@ pub trait Device: Send + Sync {
     fn install(&self, app: &str) -> (bool, String);
     /// With `heard`, the launch stays attached to the app's output while the app runs, and every report line
     /// (REPORT_LINE prefix, JSON object) is handed to `heard` the moment it is said.
-    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>) -> (bool, String);
+    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>, environment: &crate::private_launch_env::LaunchEnvironment) -> (bool, String);
     /// Whether a launch is still attached to the app's output.
     fn hears(&self) -> bool;
     /// Lets go of the app's output.
@@ -47,7 +47,7 @@ pub trait Device: Send + Sync {
 }
 
 /// Runs a whole command (the program first) with the limit in seconds, and waits for it.
-pub type Runner = Box<dyn Fn(&[String], f64) -> std::io::Result<Output> + Send + Sync>;
+pub type Runner = Box<dyn Fn(&[String], f64, &crate::private_launch_env::LaunchEnvironment) -> std::io::Result<Output> + Send + Sync>;
 
 /// A program started and left running, with its output (the program's stdout and stderr in one stream).
 pub struct Spawned {
@@ -56,7 +56,7 @@ pub struct Spawned {
 }
 
 /// Starts a whole command (the program first) in a session of its own and leaves it running.
-pub type Spawner = Box<dyn Fn(&[String]) -> std::io::Result<Spawned> + Send + Sync>;
+pub type Spawner = Box<dyn Fn(&[String], &crate::private_launch_env::LaunchEnvironment) -> std::io::Result<Spawned> + Send + Sync>;
 
 pub struct Devicectl {
     udid: String,
@@ -77,8 +77,8 @@ impl Devicectl {
         let (for_run, for_spawn) = (program.to_string(), program.to_string());
         Devicectl::with_runners(
             udid,
-            Box::new(move |command, limit| run_command(&for_run, command, limit)),
-            Box::new(move |command| spawn_command(&for_spawn, command)),
+            Box::new(move |command, limit, environment| run_command(&for_run, command, limit, environment)),
+            Box::new(move |command, environment| spawn_command(&for_spawn, command, environment)),
         )
     }
 
@@ -96,6 +96,10 @@ impl Devicectl {
     /// Runs one devicectl command. Its own options come first: whatever follows the bundle identifier of a launch
     /// goes to the app.
     fn devicectl(&self, options: &[&str], positional: &[&str], timeout: f64) -> (bool, Value, String) {
+        self.devicectl_with_environment(options, positional, timeout, &Default::default())
+    }
+
+    fn devicectl_with_environment(&self, options: &[&str], positional: &[&str], timeout: f64, environment: &crate::private_launch_env::LaunchEnvironment) -> (bool, Value, String) {
         let folder = TempFolder::new("ios-run-device.");
         let output = folder.path().join("out.json");
         let mut command: Vec<String> = ["xcrun", "devicectl"].iter().map(|word| word.to_string()).collect();
@@ -103,14 +107,14 @@ impl Devicectl {
         command.extend(["--timeout".to_string(), (timeout as i64).to_string(), "--json-output".to_string(),
                         output.to_string_lossy().to_string()]);
         command.extend(positional.iter().map(|word| word.to_string()));
-        let done = match (self.run)(&command, timeout + 30.0) {
+        let done = match (self.run)(&command, timeout + 30.0, environment) {
             Ok(done) => done,
-            Err(error) => return (false, json!({}), error.to_string()),
+            Err(error) => return (false, json!({}), environment.redact(&error.to_string())),
         };
         if done.timed_out {
             return (false, json!({}), format!("devicectl timed out after {} seconds", timeout + 30.0));
         }
-        let payload = read_json(&output).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let payload = read_json(&output).filter(Value::is_object).map(|v| environment.redact_value(&v)).unwrap_or_else(|| json!({}));
         let outcome = payload.pointer("/info/outcome").and_then(Value::as_str).unwrap_or("success");
         if done.code == Some(0) && outcome == "success" {
             return (true, payload, String::new());
@@ -127,7 +131,7 @@ impl Devicectl {
                 }
             }
         };
-        (false, payload, message)
+        (false, payload, if environment.is_empty() { message } else { "Private device launch failed; tool output suppressed.".to_string() })
     }
 }
 
@@ -140,14 +144,18 @@ fn exit_word(done: &Output) -> i64 {
     }
 }
 
-fn run_command(program: &str, command: &[String], limit: f64) -> std::io::Result<Output> {
-    let options = Options::new("queues.devicectl").timeout(limit);
+fn run_command(program: &str, command: &[String], limit: f64, environment: &crate::private_launch_env::LaunchEnvironment) -> std::io::Result<Output> {
+    let mut options = Options::new("queues.devicectl").timeout(limit);
+    for (name, _) in std::env::vars_os().filter(|(n,_)| n.to_string_lossy().starts_with("DEVICECTL_CHILD_")) {
+        options = options.env_remove(&name.to_string_lossy());
+    }
+    for (name, value) in environment.variables() { options = options.env(&format!("DEVICECTL_CHILD_{name}"), value); }
     run(program.to_string(), &command[1..], &options)
 }
 
 /// A launch that stays: in a session of its own, so that a signal that reaches this process does not reach the
 /// launch, which passes every signal it catches on to the app. Its stdout and stderr are one stream.
-fn spawn_command(program: &str, command: &[String]) -> std::io::Result<Spawned> {
+fn spawn_command(program: &str, command: &[String], environment: &crate::private_launch_env::LaunchEnvironment) -> std::io::Result<Spawned> {
     let mut ends = [0i32; 2];
     if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
         return Err(std::io::Error::last_os_error());
@@ -157,6 +165,7 @@ fn spawn_command(program: &str, command: &[String]) -> std::io::Result<Spawned> 
         unsafe { libc::fcntl(end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
     }
     let mut process = Command::new(program);
+    crate::private_launch_env::configure_child(&mut process, environment);
     process.args(&command[1..]).stdin(Stdio::null()).stdout(Stdio::from(write.try_clone()?)).stderr(Stdio::from(write));
     unsafe {
         process.pre_exec(|| {
@@ -206,6 +215,7 @@ impl Drop for TempFolder {
 /// What the reader of an attached launch's output tells the one that waits for it.
 #[derive(Default)]
 struct Watch {
+    confirmed: bool,
     launched: bool,
     ended: bool,
     said: Vec<String>,
@@ -235,7 +245,7 @@ impl Device for Devicectl {
         (succeeded, message)
     }
 
-    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>) -> (bool, String) {
+    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>, environment: &crate::private_launch_env::LaunchEnvironment) -> (bool, String) {
         let mut options = vec!["--device".to_string(), self.udid.clone(), "--terminate-existing".to_string()];
         if let Some(url) = url.filter(|url| !url.is_empty()) {
             options.extend(["--payload-url".to_string(), url.to_string()]);
@@ -247,7 +257,7 @@ impl Device for Devicectl {
             words.extend(options.iter().map(String::as_str));
             let mut positional = vec![bundle_id];
             positional.extend(arguments.iter().map(String::as_str));
-            let (succeeded, _, message) = self.devicectl(&words, &positional, 60.0);
+            let (succeeded, _, message) = self.devicectl_with_environment(&words, &positional, 60.0, environment);
             return (succeeded, message);
         };
         let mut command: Vec<String> = ["xcrun", "devicectl", "device", "process", "launch"].iter().map(|w| w.to_string()).collect();
@@ -255,12 +265,13 @@ impl Device for Devicectl {
         command.push("--console".to_string());
         command.push(bundle_id.to_string());
         command.extend(arguments.iter().cloned());
-        let Spawned { mut child, output } = match (self.spawn)(&command) {
+        let Spawned { mut child, output } = match (self.spawn)(&command, environment) {
             Ok(spawned) => spawned,
-            Err(error) => return (false, error.to_string()),
+            Err(error) => return (false, environment.redact(&error.to_string())),
         };
         let watch = Arc::new((Mutex::new(Watch::default()), Condvar::new()));
         let reader = Arc::clone(&watch);
+        let environment = environment.clone();
         std::thread::spawn(move || {
             let (state, signal) = &*reader;
             let mut lines = BufReader::new(output);
@@ -278,14 +289,15 @@ impl Device for Devicectl {
                         signal.notify_all();
                     }
                     if let Ok(report @ Value::Object(_)) = serde_json::from_str::<Value>(&text[at + REPORT_LINE.len()..]) {
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| heard(report)));
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| heard(environment.redact_value(&report))));
                     }
                 } else {
                     let mut now = state.lock().unwrap();
                     if !now.launched {
-                        now.said.push(text.clone());
+                        now.said.push(if environment.is_empty() { text.clone() } else { "Private device launch output suppressed.".to_string() });
                         if text.starts_with("Launched application") {
                             now.launched = true;
+                            now.confirmed = true;
                             signal.notify_all();
                         }
                     }
@@ -324,7 +336,7 @@ impl Device for Devicectl {
             return (true, String::new());
         };
         let said = state.lock().unwrap().said.clone();
-        if status.success() || said.iter().any(|line| line.starts_with("Launched application")) {
+        if status.success() || state.lock().unwrap().confirmed {
             return (true, String::new()); // launched, and the app is gone already: nothing to stay attached to
         }
         match said.iter().rev().find(|line| !line.trim().is_empty()) {
@@ -406,7 +418,7 @@ mod tests {
     fn scripted(replies: Vec<(i32, Option<Value>)>) -> (Devicectl, Arc<Mutex<Vec<Vec<String>>>>) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let (seen, queue) = (Arc::clone(&calls), Mutex::new(VecDeque::from(replies)));
-        let run: Runner = Box::new(move |command, _| {
+        let run: Runner = Box::new(move |command, _, _| {
             seen.lock().unwrap().push(command.to_vec());
             let (code, payload) = queue.lock().unwrap().pop_front().expect("one reply a call");
             if let Some(payload) = payload {
@@ -414,7 +426,7 @@ mod tests {
             }
             Ok(ok(code))
         });
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no launch here")));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no launch here")));
         (Devicectl::with_runners("UDID", run, spawn), calls)
     }
 
@@ -445,8 +457,8 @@ mod tests {
 
     #[test]
     fn an_odd_udid_is_not_put_into_a_filter() {
-        let run: Runner = Box::new(|_, _| Ok(ok(1)));
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let run: Runner = Box::new(|_, _, _| Ok(ok(1)));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         let device = Devicectl::with_runners("x' OR 1=1 --", run, spawn);
         assert_eq!(device.lock_state(), "unknown");
     }
@@ -455,7 +467,7 @@ mod tests {
     fn devicectl_options_come_before_the_app_arguments() {
         let (device, calls) = scripted(vec![(0, None)]);
         let arguments: Vec<String> = ["--ios-run-tag", "r/38", "--flag"].iter().map(|w| w.to_string()).collect();
-        assert_eq!(device.launch("dev.example.demo", &arguments, Some("demo://x"), None), (true, String::new()));
+        assert_eq!(device.launch("dev.example.demo", &arguments, Some("demo://x"), None, &Default::default()), (true, String::new()));
         let command = calls.lock().unwrap()[0].clone();
         let bundle = command.iter().position(|word| word == "dev.example.demo").unwrap();
         assert_eq!(command[bundle + 1..], ["--ios-run-tag", "r/38", "--flag"]);
@@ -468,11 +480,11 @@ mod tests {
     fn a_failure_says_why() {
         let (device, _) = scripted(vec![(1, Some(json!({"error": {"userInfo": {"NSLocalizedDescription": {"string": "no tunnel"}}}})))]);
         assert_eq!(device.install("/tmp/App.app"), (false, "no tunnel".to_string()));
-        let run: Runner = Box::new(|_, _| Ok(Output { code: Some(2), stderr: b"first\nlast line\n".to_vec(), ..Output::default() }));
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let run: Runner = Box::new(|_, _, _| Ok(Output { code: Some(2), stderr: b"first\nlast line\n".to_vec(), ..Output::default() }));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         assert_eq!(Devicectl::with_runners("UDID", run, spawn).install("a"), (false, "last line".to_string()));
-        let run: Runner = Box::new(|_, _| Ok(ok(7)));
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let run: Runner = Box::new(|_, _, _| Ok(ok(7)));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         assert_eq!(Devicectl::with_runners("UDID", run, spawn).install("a"), (false, "devicectl exited with 7".to_string()));
         // An outcome other than success fails whatever the exit code says.
         let (device, _) = scripted(vec![(0, Some(json!({"info": {"outcome": "failed"}})))]);
@@ -481,11 +493,11 @@ mod tests {
 
     #[test]
     fn a_program_that_cannot_be_started_or_times_out_is_a_failure() {
-        let run: Runner = Box::new(|_, _| Err(std::io::Error::other("cannot start")));
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let run: Runner = Box::new(|_, _, _| Err(std::io::Error::other("cannot start")));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         assert_eq!(Devicectl::with_runners("UDID", run, spawn).install("a"), (false, "cannot start".to_string()));
-        let run: Runner = Box::new(|_, _| Ok(Output { timed_out: true, ..Output::default() }));
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let run: Runner = Box::new(|_, _, _| Ok(Output { timed_out: true, ..Output::default() }));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         let (done, message) = Devicectl::with_runners("UDID", run, spawn).install("a");
         assert!(!done && message.contains("timed out"));
     }
@@ -494,7 +506,7 @@ mod tests {
     fn the_marks_file_is_read_and_the_hosts_word_is_written() {
         let copied = Arc::new(Mutex::new(String::new()));
         let seen = Arc::clone(&copied);
-        let run: Runner = Box::new(move |command, _| {
+        let run: Runner = Box::new(move |command, _, _| {
             let at = |option: &str| command.iter().position(|word| word == option).map(|i| command[i + 1].clone());
             if command.contains(&"from".to_string()) {
                 std::fs::write(at("--destination").unwrap(), "{\"id\": \"t1\"}").unwrap();
@@ -505,7 +517,7 @@ mod tests {
             }
             Ok(ok(0))
         });
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         let device = Devicectl::with_runners("UDID", run, spawn);
         assert_eq!(device.read_report("dev.example.demo"), Some(json!({"id": "t1"})));
         assert!(device.write_host("dev.example.demo", &json!({"current": "ж", "n": 2})));
@@ -514,12 +526,12 @@ mod tests {
 
     #[test]
     fn a_report_that_is_not_an_object_is_none() {
-        let run: Runner = Box::new(|command, _| {
+        let run: Runner = Box::new(|command, _, _| {
             let at = command.iter().position(|word| word == "--destination").unwrap();
             std::fs::write(&command[at + 1], "[1]").unwrap();
             Ok(ok(0))
         });
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         assert_eq!(Devicectl::with_runners("UDID", run, spawn).read_report("b"), None);
         let (device, _) = scripted(vec![(1, None)]);
         assert_eq!(device.read_report("b"), None);
@@ -581,7 +593,7 @@ exec sleep 60", 20.0);
         let (heard, reports) = collector();
         let began = Instant::now();
         let arguments = vec!["--ios-run-tag".to_string(), "r/38".to_string()];
-        assert_eq!(fake.device.launch("dev.example.demo", &arguments, None, Some(heard)), (true, String::new()));
+        assert_eq!(fake.device.launch("dev.example.demo", &arguments, None, Some(heard), &Default::default()), (true, String::new()));
         assert!(began.elapsed() < Duration::from_secs(10));
         assert_eq!(fake.command(), format!("devicectl device process launch --device {UDID} --terminate-existing --console dev.example.demo --ios-run-tag r/38"));
         let until = Instant::now() + Duration::from_secs(5);
@@ -600,7 +612,7 @@ exec sleep 60", 20.0);
     #[test]
     fn the_launch_is_in_a_session_of_its_own() {
         let fake = Fake::new("session", "exec sleep 60", 0.3);
-        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing())), (true, String::new()));
+        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default()), (true, String::new()));
         let pid = fake.device.attached.lock().unwrap().as_ref().unwrap().id() as i32;
         assert_eq!(unsafe { libc::getsid(pid) }, pid);
         assert_eq!(unsafe { libc::getpgid(pid) }, pid);
@@ -609,7 +621,7 @@ exec sleep 60", 20.0);
     #[test]
     fn a_launch_that_fails_says_why() {
         let fake = Fake::new("fails", "echo 'ERROR: The device is locked.'\nexit 1", 20.0);
-        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing())),
+        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default()),
                    (false, "ERROR: The device is locked.".to_string()));
         assert!(!fake.device.hears());
     }
@@ -617,13 +629,13 @@ exec sleep 60", 20.0);
     #[test]
     fn a_launch_that_says_nothing_and_fails_says_its_code() {
         let fake = Fake::new("silent", "exit 3", 20.0);
-        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing())), (false, "devicectl exited with 3".to_string()));
+        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default()), (false, "devicectl exited with 3".to_string()));
     }
 
     #[test]
     fn an_app_that_is_gone_at_once_was_still_launched() {
         let fake = Fake::new("gone", "echo 'Launched application with dev.example.demo bundle identifier.'", 20.0);
-        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing())), (true, String::new()));
+        assert_eq!(fake.device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default()), (true, String::new()));
         // It may still be on its way out when "Launched application" is said: wait for it as the launch may.
         let attached = fake.device.attached.lock().unwrap().take();
         if let Some(mut child) = attached {
@@ -635,9 +647,9 @@ exec sleep 60", 20.0);
     #[test]
     fn a_new_launch_lets_go_of_the_old_one() {
         let fake = Fake::new("again", "exec sleep 60", 0.3);
-        assert!(fake.device.launch("dev.example.demo", &[], None, Some(nothing())).0);
+        assert!(fake.device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default()).0);
         let first = fake.device.attached.lock().unwrap().as_ref().unwrap().id() as i32;
-        assert!(fake.device.launch("dev.example.demo", &[], None, Some(nothing())).0);
+        assert!(fake.device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default()).0);
         let second = fake.device.attached.lock().unwrap().as_ref().unwrap().id() as i32;
         assert_ne!(first, second);
         assert_ne!(unsafe { libc::kill(first, 0) }, 0, "the first launch is gone");
@@ -647,7 +659,7 @@ exec sleep 60", 20.0);
     fn a_launch_that_cannot_be_started_says_why() {
         let fake = Fake::new("nostart", "exit 0", 1.0);
         let device = Devicectl::with_program(UDID, "/nonexistent/xcrun");
-        let (done, message) = device.launch("dev.example.demo", &[], None, Some(nothing()));
+        let (done, message) = device.launch("dev.example.demo", &[], None, Some(nothing()), &Default::default());
         assert!(!done && !message.is_empty());
         drop(fake);
     }
@@ -656,13 +668,13 @@ exec sleep 60", 20.0);
     fn the_temporary_folders_are_removed() {
         let folders = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&folders);
-        let run: Runner = Box::new(move |command, _| {
+        let run: Runner = Box::new(move |command, _, _| {
             let folder = output_path(command).parent().unwrap().to_path_buf();
             assert!(folder.is_dir());
             seen.lock().unwrap().push(folder);
             Ok(ok(0))
         });
-        let spawn: Spawner = Box::new(|_| Err(std::io::Error::other("no")));
+        let spawn: Spawner = Box::new(|_, _| Err(std::io::Error::other("no")));
         let device = Devicectl::with_runners("UDID", run, spawn);
         device.install("a");
         device.write_host("b", &json!({}));

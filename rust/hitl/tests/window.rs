@@ -497,6 +497,22 @@ fn the_keys_light_up_with_the_keyboard_and_the_window_keeps_its_size() {
 }
 
 #[test]
+fn a_web_reference_in_a_phone_check_opens_on_the_mac() {
+    let case = Case::new("phone-mac-link");
+    let id = "1009-120000-001-r38";
+    let site = "https://example.test/pull/42";
+    case.phone_check(id);
+    let path = case.home.join("queue").join(format!("{id}.json"));
+    let mut card: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    card["items"][0]["links"] = json!([site]);
+    std::fs::write(path, card.to_string()).unwrap();
+    case.play(&["click example.test".into(), dump(&case, "mac-link.json")]);
+    let seen = case.seen("mac-link.json");
+    assert_eq!(strings(&seen["browsed"]), [site]);
+    assert_eq!(strings(&seen["trails"]), ["На Маке"]);
+}
+
+#[test]
 fn a_site_opens_in_the_web_browser_and_another_app_s_link_in_that_app() {
     // 2026-10-21: a task's link to realize.day opened in the Realize build that test runs put on this Mac, which
     // claims the site, and not on the site: «почему то в дев сборке приложения а не на сайте».
@@ -541,14 +557,30 @@ fn the_check_that_is_on_the_phone_comes_forward_once_and_what_was_being_answered
     assert_eq!((phone["id"].as_str(), phone["onPhone"].as_bool(), phone["kind"].as_str(), phone["origin"].as_str()),
                (Some("1009-120000-001-r38"), Some(true), Some("на телефоне XYZC"), Some("r/38 · Бары внизу")));
     assert_eq!(strings(&phone["queue"]), ["r/66 · чек-лист"]);
-    // The phone's panel has three marks, so «не понял» is not offered for its check; for the window's own it is.
+    // A check on either screen offers a separate mark for an unclear step.
     let (answers, keys) = (strings(&mine["answers"]), strings(&mine["keys"]));
-    assert_eq!((strings(&phone["answers"]), answers.last().map(String::as_str), keys.last().map(String::as_str)),
-               (vec!["Работает".to_string(), "Не работает".into(), "Пропустить".into()], Some("Не понял"), Some("0")));
+    assert_eq!((strings(&phone["answers"]), answers.get(answers.len() - 2).map(String::as_str), keys.get(keys.len() - 2).map(String::as_str)),
+               (vec!["Работает".to_string(), "Не работает".into(), "Пропустить".into(), "Шаг непонятен".into()], Some("Шаг непонятен"), Some("0")));
     // He goes to another check by his own hand, and is not pulled back to the phone's.
     assert_eq!((mine["id"].as_str(), mine["onPhone"].as_bool(), case.seen("stays.json")["id"].as_str()),
                (Some(own.as_str()), Some(false), Some(own.as_str())));
     assert!(!std::fs::read(case.at("phone.png")).unwrap().is_empty());
+}
+
+#[test]
+fn an_unclear_phone_step_stays_on_the_item_and_writes_a_separate_mark() {
+    let case = Case::new("unclear-phone-step");
+    let folder = case.phone_check("1009-120000-001-r38");
+    case.play(&[
+        "click Шаг непонятен".into(), dump(&case, "unclear.json"),
+        "text Где эта кнопка?".into(), "click ›".into(),
+    ]);
+    let seen = case.seen("unclear.json");
+    assert_eq!(seen["index"], 0);
+    assert_eq!(seen["editing"], true);
+    let said = read(&folder.join("mac.json"));
+    assert_eq!(said["results"][0]["state"], "unclear");
+    assert_eq!(said["results"][0]["note"], "Где эта кнопка?");
 }
 
 /// The redesign of 2026-10-20: the folder and the branch under the chat's name in the head, gone from the folded
@@ -564,8 +596,24 @@ fn head_says_where_from_and_answers_are_buttons() {
     let from = opened["from"].as_str().unwrap_or("");
     assert!(from.contains(" · ⎇ "), "{from:?}");
     assert_eq!((opened["originShown"].as_bool(), folded["originShown"].as_bool()), (Some(true), Some(false)));
-    assert_eq!(strings(&opened["quietAnswers"]), ["Не понял"]);
+    assert_eq!(strings(&opened["quietAnswers"]), ["Не понял", "Визуализировать"]);
     assert_eq!((opened["doneReady"].as_bool(), answered["doneReady"].as_bool()), (Some(false), Some(true)));
+}
+
+#[test]
+fn visualization_is_a_distinct_request_and_keeps_the_comment() {
+    let case = Case::new("visualize");
+    let id = case.queue(&["--title", "Окно", "--kind", "question", "--check", "1. Как назначать задачи?"]);
+    case.play(&[
+        "click Визуализировать".into(), dump(&case, "asked.json"),
+        "text Покажи обе темы".into(), "click Готово".into(),
+    ]);
+    let opened = case.seen("asked.json");
+    assert_eq!(strings(&opened["keys"]).last().map(String::as_str), Some("-"));
+    assert_eq!(opened["editing"], true);
+    let result = &case.verdict(&id)["results"][0];
+    assert_eq!(result["visualize"], true);
+    assert_eq!(result["note"], "Покажи обе темы");
 }
 
 /// The app a check came from stands before the project as its own icon, and the "Чат" button opens the chat by what the

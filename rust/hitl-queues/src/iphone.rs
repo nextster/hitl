@@ -34,6 +34,10 @@ A hand check:
                            checklist line, \"what to do → what should happen\";
                            repeat it per item. A leading \"3.\" or \"4a.\" stays
                            the item's number.
+  --prepare                Hide manual items until a fresh preparation ACK.
+  --launch-env-file FILE   Private mode-600 JSON launch input (version, bundleID,
+                           udid, variables). Its parent must be mode 700. Values
+                           go only to this ticket’s device launch, never the build.
   --check-title TEXT       What the check is about, in a few words.
   --check-setup IDS        For the --check before it, in an app that can act on a
                            checklist: actions the app runs when the tester comes
@@ -46,10 +50,13 @@ A hand check:
                            which one holds as a row of options, an action
                            done once as a symbol. Naming one action of a
                            switch or of a choice brings the whole button.
-  --check-link URL         A deep link offered as a button with that item,
-                           under its address.
+  --check-link URL         Deep link handled by the app on the iPhone, even
+                           when clicked from the Mac window.
+  --check-mac-link URL     HTTP(S) link opened on the Mac only, from the mirrored
+                           item. Use for a PR or other reference.
+                           Setup and app buttons always run on the iPhone.
   --checklist FILE         Checklist from a file: a title line, then one item
-                           per line; \"setup: …\", \"buttons: …\" and \"link: …\"
+                           per line; \"setup: …\", \"buttons: …\" and \"link: …\" and \"mac-link: …\"
                            lines under an item belong to it. Combines with
                            --check.
 
@@ -130,7 +137,7 @@ pub const IOS_RUN_VALUE_OPTIONS: [&str; 13] = [
 pub const TEST_OPTIONS: [&str; 5] = ["--test", "--test-without-building", "--only-testing", "--skip-testing", "--test-plan"];
 /// What does not put a build on the phone, so needs no word about why.
 pub const ASIDE_OPTIONS: [&str; 3] = ["--build-only", "--list-devices", "--list-simulators"];
-pub const ITEM_FIELDS: [(&str, &str); 3] = [("--check-setup", "setup"), ("--check-button", "buttons"), ("--check-link", "link")];
+pub const ITEM_FIELDS: [(&str, &str); 4] = [("--check-setup", "setup"), ("--check-button", "buttons"), ("--check-link", "link"), ("--check-mac-link", "mac-link")];
 pub const FORCED_QUEUE_COMMANDS: [&str; 5] = ["release", "drop", "first", "pause", "resume"];
 
 /// Whether what a link leads to is something to open (`common.is_address`): a path on this Mac, or a scheme and
@@ -169,6 +176,8 @@ pub struct Call {
     pub items: Vec<String>,
     pub title: String,
     pub checklist: String,
+    pub prepare: bool,
+    pub launch_env_file: String,
     pub checking: bool,
     pub probe: bool,
     pub no_wait: bool,
@@ -215,7 +224,7 @@ impl Call {
                     call.checking = true;
                 }
                 "--check-title" => call.title = value(&mut index, "a value")?,
-                "--check-setup" | "--check-button" | "--check-link" => {
+                "--check-setup" | "--check-button" | "--check-link" | "--check-mac-link" => {
                     let field = value(&mut index, "a value")?;
                     let Some(last) = call.items.last_mut() else {
                         return die(format!("{argument} belongs to the --check before it: put it after one."));
@@ -224,6 +233,8 @@ impl Call {
                     // Joined to the item's text with a unit separator; the queue splits it.
                     last.push_str(&format!("{FIELD_SEPARATOR}{name}={field}"));
                 }
+                "--prepare" => call.prepare = true,
+                "--launch-env-file" => call.launch_env_file = value(&mut index, "a private JSON file")?,
                 "--checklist" => {
                     call.checklist = value(&mut index, "a file")?;
                     call.checking = true;
@@ -335,6 +346,9 @@ pub fn environment_for_ios_run(call: &Call, probe: bool) -> Vec<(String, String)
 
 fn options_with(purpose: &str, environment: &[(String, String)]) -> Options {
     let mut options = Options::new(purpose);
+    for (name, _) in std::env::vars_os().filter(|(n,_)| n.to_string_lossy().starts_with("DEVICECTL_CHILD_")) {
+        options = options.env_remove(&name.to_string_lossy());
+    }
     for (name, value) in environment {
         options = options.env(name, value);
     }
@@ -422,6 +436,10 @@ pub fn check_arguments(call: &Call, product: &Value, chat: &str) -> Result<Vec<S
     ];
     if product.get("target").and_then(Value::as_str) != Some("device") {
         return die("--check and --probe are for a physical device.");
+    }
+    if call.prepare { arguments.push("--prepare".into()); }
+    if !call.launch_env_file.is_empty() {
+        arguments.extend(["--launch-env-file".to_string(), call.launch_env_file.clone()]);
     }
     if let Some(core) = product.get("coreDeviceId").and_then(Value::as_str).filter(|core| !core.is_empty()) {
         arguments.push("--core-id".into());
@@ -526,6 +544,9 @@ pub fn product_of(output: &str) -> Result<Value, Stop> {
 
 /// What a check does before the queue: has ios-run.sh build, and makes the arguments for the queue.
 pub fn check_plan(call: &Call) -> Result<Vec<String>, Stop> {
+    if !call.launch_env_file.is_empty() {
+        crate::private_launch_env::validate_source(Path::new(&call.launch_env_file)).map_err(|e| Stop::Die(e.to_string()))?;
+    }
     let command = build_command(call)?;
     let (code, output) = build_output(&command, &environment_for_ios_run(call, false))?;
     if code != Some(0) {
@@ -585,6 +606,12 @@ pub enum Action {
 
 /// The order of the refusals is the order of the words a chat reads first.
 pub fn decide(call: &Call) -> Result<Action, Stop> {
+    if call.prepare && (call.launch_env_file.is_empty() || !call.checking || call.probe || !call.queue_command.is_empty()) {
+        return die("--prepare requires a protected iPhone check.");
+    }
+    if !call.launch_env_file.is_empty() && (!call.checking || call.probe || !call.queue_command.is_empty()) {
+        return die("--launch-env-file belongs only to --check or --checklist.");
+    }
     if !call.queue_command.is_empty() {
         return Ok(Action::Queue);
     }
@@ -726,10 +753,10 @@ mod tests {
     #[test]
     fn the_fields_of_an_item_are_joined_to_it_with_the_separator() {
         let given = call(&["--check", "1. Open settings", "--check-setup", "open-settings,dock-fold", "--check-button", "dock-unfold",
-                           "--check", "2. Open the main screen", "--check-link", "demo://screen/main"]);
+                           "--check", "2. Open the main screen", "--check-link", "demo://screen/main", "--check-mac-link", "https://example.test/pr"]);
         assert_eq!(given.items, vec![
             "1. Open settings\u{1f}setup=open-settings,dock-fold\u{1f}buttons=dock-unfold".to_string(),
-            "2. Open the main screen\u{1f}link=demo://screen/main".to_string(),
+            "2. Open the main screen\u{1f}link=demo://screen/main\u{1f}mac-link=https://example.test/pr".to_string(),
         ]);
         let early = Call::parse(&words("--check-setup open-settings --check x"));
         assert_eq!(early.err(), Some(Stop::Die("--check-setup belongs to the --check before it: put it after one.".into())));
@@ -999,4 +1026,28 @@ echo '{"deviceId":"UDID-IPHONE","deviceName":"Test iPhone","app":"/products/Demo
         assert_eq!(main(&words("--device-id X --dry-run")), 2);
         assert_eq!(main(&words("--check-setup x")), 1);
     }
+    #[test]
+    fn private_launch_input_never_reaches_the_builder_and_invalid_input_prevents_build() {
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        use std::io::Write;
+        let mut sandbox = Sandbox::new("private-builder");
+        let folder=sandbox.folder.join("private");std::fs::DirBuilder::new().mode(0o700).create(&folder).unwrap();
+        let input=folder.join("input.json");
+        let mut file=std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600).open(&input).unwrap();
+        file.write_all(br#"{"version":1,"bundleID":"dev.example.demo","udid":"UDID-IPHONE","variables":{"REALIZE_PASSWORD":"private-build-sentinel"}}"#).unwrap();
+        let record=sandbox.folder.join("args.txt");
+        let script=BUILD.replace("echo \"env:","echo \"env:");
+        let script=format!("{}\necho \"private-env:${{DEVICECTL_CHILD_REALIZE_PASSWORD-unset}}\" >> \"$ARGS_FILE\"\n",script);
+        let builder=write_script(&sandbox.folder,"builder",&script);
+        sandbox.set("IOS_RUN_COMMAND",builder.to_str().unwrap());sandbox.set("ARGS_FILE",record.to_str().unwrap());
+        sandbox.set("DEVICECTL_CHILD_REALIZE_PASSWORD","ambient-build-sentinel");
+        let given=call(&["/p","--check","1. Look","--launch-env-file",input.to_str().unwrap()]);
+        assert!(!build_command(&given).unwrap().join(" ").contains("launch-env"));
+        assert!(environment_for_ios_run(&given,false).iter().all(|(_,v)|!v.contains("sentinel")));
+        let arguments=check_plan(&given).unwrap();assert!(arguments.contains(&"--launch-env-file".into()));
+        let text=std::fs::read_to_string(&record).unwrap();assert!(text.contains("private-env:unset"));assert!(!text.contains("sentinel"));
+        std::fs::remove_file(&record).unwrap();std::fs::remove_file(input).unwrap();assert!(check_plan(&given).is_err());assert!(!record.exists());
+        for argv in [vec!["--probe","--launch-env-file","x"],vec!["--mac","--launch-env-file","x"],vec!["--queue","--launch-env-file","x"]] { assert!(decide(&call(&argv)).is_err()); }
+    }
+
 }

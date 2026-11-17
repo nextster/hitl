@@ -217,7 +217,8 @@ final class Row: Tap {
     /// Not an answer to the item but about it: drawn without a ground of its own.
     var quiet = false { didSet { needsDisplay = true } }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: columnWide, height: Face.rowTall) }
+    var paired = false
+    override var intrinsicContentSize: NSSize { NSSize(width: paired ? (columnWide - 4) / 2 : columnWide, height: Face.rowTall) }
 
     override func draw(_ dirtyRect: NSRect) {
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)

@@ -49,14 +49,16 @@ public struct DeviceCheck: Codable, Equatable, Sendable {
     /// The project the check is about, by the name the tester knows it under; nil from a host that does not say.
     public let project: String?
     public let title: String
+    public let requiresReadiness: Bool?
     public let items: [Item]
 
-    public init(id: String, tag: String, project: String? = nil, title: String, items: [Item]) {
+    public init(id: String, tag: String, project: String? = nil, title: String, items: [Item], requiresReadiness: Bool? = nil) {
         self.id = id
         self.tag = tag
         self.project = project
         self.title = title
         self.items = items
+        self.requiresReadiness = requiresReadiness
     }
 
     /// Reads the argument's value: the JSON as unpadded base64url, so that no
@@ -233,7 +235,7 @@ public struct DeviceCheckReport: Codable, Equatable, Sendable {
         for theirs in host.results {
             guard let index = results.firstIndex(where: { $0.label == theirs.label }),
                   theirs.at > results[index].at ?? 0 else { continue }
-            let next = Result(label: theirs.label, state: theirs.state, note: theirs.note.flatMap { $0.isEmpty ? nil : $0 }, at: theirs.at)
+            let next = Result(label: theirs.label, state: theirs.unclear == true && theirs.state == .skipped ? .unclear : theirs.state, note: theirs.note.flatMap { $0.isEmpty ? nil : $0 }, at: theirs.at)
             guard next != results[index] else { continue }
             results[index] = next
             updatedAt = now
@@ -322,7 +324,10 @@ public struct DeviceCheckHost: Codable, Equatable, Sendable {
         /// When it was made, in seconds since 1970.
         public let at: Double
 
-        public init(label: String, state: CheckMark?, note: String?, at: Double) {
+        public let unclear: Bool?
+
+        public init(label: String, state: CheckMark?, note: String?, at: Double, unclear: Bool? = nil) {
+            self.unclear = unclear
             self.label = label
             self.state = state
             self.note = note
@@ -339,19 +344,25 @@ public struct DeviceCheckHost: Codable, Equatable, Sendable {
     /// The latest button pressed at the host.
     public let run: Run?
     /// The tester ended the check at the host.
+    public let manualReady: Bool?
+    public let manualReadyPID: Int32?
+    public let preparationError: String?
     public let finished: Bool
 
     /// Where the host puts the file, under the app's Application Support.
     public static let relativePath = "ios-run/host.json"
 
     public init(id: String, results: [Result], current: String? = nil, currentAt: Double? = nil, run: Run? = nil,
-                finished: Bool = false) {
+                finished: Bool = false, manualReady: Bool? = nil, manualReadyPID: Int32? = nil, preparationError: String? = nil) {
         self.id = id
         self.results = results
         self.current = current
         self.currentAt = currentAt
         self.run = run
         self.finished = finished
+        self.manualReady = manualReady
+        self.manualReadyPID = manualReadyPID
+        self.preparationError = preparationError
     }
 
     /// The host leaves out what it has nothing to say about.
@@ -362,6 +373,9 @@ public struct DeviceCheckHost: Codable, Equatable, Sendable {
         current = try container.decodeIfPresent(String.self, forKey: .current)
         currentAt = try container.decodeIfPresent(Double.self, forKey: .currentAt)
         run = try container.decodeIfPresent(Run.self, forKey: .run)
+        preparationError = try container.decodeIfPresent(String.self, forKey: .preparationError)
+        manualReadyPID = try container.decodeIfPresent(Int32.self, forKey: .manualReadyPID)
+        manualReady = try container.decodeIfPresent(Bool.self, forKey: .manualReady)
         finished = try container.decodeIfPresent(Bool.self, forKey: .finished) ?? false
     }
 

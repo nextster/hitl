@@ -296,11 +296,12 @@ extension Controller {
     func mark(_ number: Int) {
         guard active != nil else { return }
         marks[index].note = note.string
-        if number == unclearNumber {
+        if number == unclearNumber || number == visualizeNumber {
             // Not a no: the chat says this item again, and the other answers of the check stand.
             guard offersUnclear else { return }
-            marks[index].state = "problem"
-            marks[index].unclear = true
+            marks[index].state = active?.isOnPhone == true ? "unclear" : "problem"
+            marks[index].unclear = active?.isOnPhone == true ? nil : true
+            marks[index].visualize = number == visualizeNumber ? true : nil
             marks[index].choice = nil
             marks[index].choices = nil
             marks[index].other = nil
@@ -312,6 +313,7 @@ extension Controller {
             return
         }
         marks[index].unclear = nil
+        marks[index].visualize = nil
         if isMany {
             // A tick goes on or comes off, and the item stays: he goes on himself, by the arrow or Tab.
             if number < 0 {

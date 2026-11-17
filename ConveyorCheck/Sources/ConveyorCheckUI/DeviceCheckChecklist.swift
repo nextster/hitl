@@ -57,7 +57,7 @@ public final class DeviceCheckChecklist: ChecklistSource {
     isolated deinit { watching?.invalidate() }
 
     private func watch() {
-        guard store.isActive else {
+        guard store.canPresentChecklist else {
             watching?.invalidate()
             watching = nil
             return

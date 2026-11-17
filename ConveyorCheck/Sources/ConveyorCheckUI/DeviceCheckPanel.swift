@@ -29,7 +29,7 @@ public enum DeviceCheckPanel {
                             currentStyle: @escaping () -> UIUserInterfaceStyle, controls: [DeviceCheckControl] = [],
                             run: @escaping ([String]) async -> String?, openLink: @escaping (URL) -> Bool,
                             onFinish: @escaping () -> Void) -> ChecklistPanelWindow? {
-        guard store.isActive, let scene = appWindow.windowScene else { return nil }
+        guard store.canPresentChecklist, let scene = appWindow.windowScene else { return nil }
         let checklist = DeviceCheckChecklist(store: store, controls: controls, run: run, openLink: openLink, onFinish: onFinish)
         let controller = ChecklistPanelController(source: checklist, style: style, defaults: defaults, oneAtATimeKey: oneAtATimeKey,
                                                   appWindow: appWindow, currentStyle: currentStyle)

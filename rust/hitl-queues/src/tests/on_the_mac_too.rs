@@ -197,8 +197,8 @@ impl Device for Counting {
     fn install(&self, app: &str) -> (bool, String) {
         self.inner.install(app)
     }
-    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>) -> (bool, String) {
-        self.inner.launch(bundle_id, arguments, url, heard)
+    fn launch(&self, bundle_id: &str, arguments: &[String], url: Option<&str>, heard: Option<Heard>, _environment: &crate::private_launch_env::LaunchEnvironment) -> (bool, String) {
+        self.inner.launch(bundle_id, arguments, url, heard, _environment)
     }
     fn hears(&self) -> bool {
         self.inner.hears()
@@ -235,6 +235,19 @@ fn told(case: &Case) -> Vec<Value> {
 
 fn states(phone: &Value) -> Vec<Value> {
     phone["results"].as_array().unwrap().iter().map(|entry| entry["state"].clone()).collect()
+}
+
+#[test]
+fn a_mac_link_is_only_in_the_mac_mirror() {
+    let mut case = Case::new("mac-only-link");
+    let url = "https://example.test/pull/42";
+    let item = format!("1. Open settings\u{1f}link=demo://settings\u{1f}mac-link={url}");
+    let id = case.submit("mac-link", &[&item]);
+    case.step();
+    let shown = read_json(&window_ticket_path(&id));
+    assert_eq!(shown["items"][0]["links"], json!([url]));
+    assert!(shown["items"][0].get("link").is_none());
+
 }
 
 #[test]

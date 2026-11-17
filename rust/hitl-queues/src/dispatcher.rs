@@ -104,7 +104,11 @@ impl Shared {
     /// window. A read of the file that was already on its way when a later line came says less than the line, and is
     /// dropped.
     pub fn take(&self, active: &Value, report: Option<&Value>) {
+        if crate::preparation::pending(active) { return }
         let Some(report) = report.filter(|report| report.get("id").is_some() && report.get("id") == active.get("id")) else { return };
+        let Ok(environment) = crate::private_launch_env::load(&self.queue, active) else { return };
+        let report = environment.redact_value(report);
+        let report = &report;
         let mut noting = locked(&self.noting);
         let known = noting.report.clone().filter(|known| known.get("id") == active.get("id"));
         if let Some(known) = &known {
@@ -140,6 +144,12 @@ impl Shared {
                 return;
             }
         }
+        let report = match &active {
+            Some(active) => match crate::private_launch_env::load(&self.queue, active) {
+                Ok(environment) => environment.redact_value(&report), Err(_) => return,
+            },
+            None => report,
+        };
         locked(&self.noting).spoken = Some(report.clone());
         if let Some(active) = active {
             self.take(&active, Some(&report));
@@ -149,11 +159,13 @@ impl Shared {
     /// Passes on to the app what he did in the window on the Mac, when that has changed since the app was last told.
     /// Returns what he did there.
     pub fn tell_phone(&self, active: &Value) -> Option<Value> {
+        if crate::preparation::pending(active) { return None }
         let mut told = locked(&self.telling);
         let mine = said_on_the_mac(&self.queue, active);
         if let Some(mine) = &mine {
             if hitl_host_core::truthy(active.get("overlay")) {
-                let saying = for_the_phone(mine);
+                let mut saying = for_the_phone(mine);
+                if active["preparation"]["published"] == true { saying["manualReady"] = json!(true); saying["manualReadyPID"] = active["preparation"]["tuple"][1].clone(); }
                 let said = (text(active, "id").to_string(), hitl_host_core::dumps_line(&saying));
                 let something = hitl_host_core::truthy(saying.get("results")) || hitl_host_core::truthy(saying.get("finished"))
                     || hitl_host_core::truthy(saying.get("current")) || hitl_host_core::truthy(saying.get("run"));
@@ -565,6 +577,42 @@ impl Dispatcher {
     /// is asked to, and the ones made in the window on the Mac; tells each screen of the other; and ends the check
     /// when he ended it on either.
     pub fn watch(&mut self, active: &Value, read: bool) {
+        if crate::preparation::pending(active) {
+            let queue = self.shared.queue.clone();
+            let cancelled = read && self.shared.device.read_report(text(active,"bundleId")).is_some_and(|r|
+                r["id"] == active["id"] && hitl_host_core::truthy(r.get("finishedAt")));
+            let failure = queue.locked(|state| {
+                let current = &state["active"];
+                if current["id"] != active["id"] || !crate::preparation::pending(current) { return None }
+                if cancelled {
+                    finish(&queue, state, current.clone(), "phone", None, Some("Подготовка отменена"), "cancelled");
+                    return None
+                }
+                let preparation = &current["preparation"];
+                let failure = preparation.get("failure").cloned().or_else(||
+                    (now() >= crate::base::number(current, "installedAt") + 90.0)
+                        .then(|| json!({"phase":"timeout","exitCode":null,"errors":[]})));
+                if let Some(failure) = failure {
+                    let mut ticket = current.clone();
+                    ticket["preparation"]["failure"] = failure.clone();
+                    let note = format!("Подготовка проверки не завершена: {failure}");
+                    ticket["error"] = json!(note);
+                    self.shared.device.write_host(text(current,"bundleId"), &json!({"id":current["id"],"finished":true,"preparationError":note}));
+                    finish(&queue, state, ticket, "technical", None, Some(&note), "failed");
+                    return Some(note);
+                }
+                if preparation.get("readyAt").is_some()
+                    && self.shared.device.write_host(text(current,"bundleId"), &json!({"id":current["id"],"manualReady":true,"manualReadyPID":preparation["tuple"][1]})) {
+                    state["active"]["preparation"]["published"] = json!(true);
+                    self.shown_at = 0.0;
+                }
+                None
+            });
+            if let Some(note) = failure {
+                self.notify_once(text(active,"id"), "failed", "Не удалось подготовить проверку", &note);
+            }
+            return;
+        }
         if now() - self.shown_at >= 5.0 {
             self.shown_at = now();
             (self.show)(&self.shared.queue, active);
@@ -615,6 +663,21 @@ impl Dispatcher {
         let _ = name;
         let queue = self.shared.queue.clone();
         let head_id = text(head, "id").to_string();
+        let validation = crate::private_launch_env::load(&queue, head);
+        if validation.is_err() {
+            queue.locked(|state| {
+                if let Some(i) = state["queue"].as_array().into_iter().flatten().position(|t| t.get("id") == head.get("id")) {
+                    let mut ticket = crate::base::list_mut(state, "queue").remove(i);
+                    ticket["state"] = json!("failed");
+                    ticket["finishedAt"] = json!(now());
+                    ticket["error"] = json!(crate::private_launch_env::ERROR);
+                    let _ = std::fs::remove_dir_all(queue.ticket_folder(text(&ticket, "id")).join("app"));
+                    archive(state, ticket);
+                }
+            });
+            return;
+        }
+        drop(validation);
         let lock = self.shared.device.lock_state();
         if lock != "unlocked" {
             self.device_blocked(head, &lock);
@@ -657,7 +720,19 @@ impl Dispatcher {
                 None
             };
             let arguments: Vec<String> = head["appArguments"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
-            (succeeded, message) = self.shared.device.launch(text(head, "bundleId"), &arguments, head.get("payloadUrl").and_then(Value::as_str), heard);
+            (succeeded, message) = queue.locked(|state| {
+                let waiting = state["queue"].as_array().into_iter().flatten().find(|t| t.get("id") == head.get("id"));
+                let Some(current) = waiting.filter(|t| *t == head || (t.get("bundleId") == head.get("bundleId") && t.get("launchEnvRef") == head.get("launchEnvRef"))) else {
+                    return (false, crate::private_launch_env::ERROR.to_string());
+                };
+                match crate::private_launch_env::load(&queue, current) {
+                    Ok(environment) => {
+                        let (ok, message) = self.shared.device.launch(text(head, "bundleId"), &arguments, head.get("payloadUrl").and_then(Value::as_str), heard, &environment);
+                        (ok, environment.redact(&message))
+                    },
+                    Err(error) => (false, error.to_string()),
+                }
+            });
         }
         let mut failed: Option<Value> = None;
         queue.locked(|state| {
@@ -697,7 +772,7 @@ impl Dispatcher {
         });
         if let Some(failed) = failed {
             self.notify_once(text(&failed, "id"), "failed", &format!("{}: сборка не встала", text(&failed, "tag")), text(&failed, "error"));
-        } else if succeeded {
+        } else if succeeded && !crate::preparation::pending(head) {
             // The same checklist comes up in the window on the Mac at once.
             self.shown_at = now();
             (self.show)(&queue, head);
@@ -768,7 +843,11 @@ pub fn show_in_window(queue: &Queue, ticket: &Value) {
     let path = window_ticket(text(ticket, "id"));
     if !path.exists() {
         let project = text(ticket, "project");
-        let items: Vec<Value> = ticket["items"].as_array().into_iter().flatten().map(|item| json!({"label": item["label"], "text": item["text"]})).collect();
+        let items: Vec<Value> = ticket["items"].as_array().into_iter().flatten().map(|item| {
+            let mut shown = json!({"label": item["label"], "text": item["text"]});
+            if let Some(links) = item.get("macLinks") { shown["links"] = links.clone(); }
+            shown
+        }).collect();
         let device = Some(queue.load()).and_then(|state| Some(text(&state, "name").to_string())).filter(|name| !name.is_empty()).unwrap_or_else(|| queue.udid.clone());
         let card = json!({
             "id": ticket["id"], "screen": "iphone", "device": device, "udid": queue.udid,
@@ -797,7 +876,9 @@ pub fn command_dispatch(udid: &str) -> i32 {
     let Ok(Some(lock)) = FileLock::try_exclusive(&queue.folder.join("dispatcher.lock")) else { return 0 };
     unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) };
     println!("{} dispatcher {} started", bridge::timestamp(), std::process::id());
-    let held = Arc::new(Mutex::new(Some(lock)));
+    let Ok(Some(private_lock)) = FileLock::try_exclusive(&queue.folder.join("private-launch-v1.lock")) else { return 1 };
+    let Ok(Some(preparation_lock)) = FileLock::try_exclusive(&queue.folder.join("preparation-v1.lock")) else { return 1 };
+    let held = Arc::new(Mutex::new(Some((lock, private_lock, preparation_lock))));
     let released = held.clone();
     let udid_again = udid.to_string();
     let mut dispatcher = Dispatcher::new(queue, real_device(udid))

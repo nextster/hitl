@@ -514,8 +514,8 @@ fn an_item_asked_again_brings_his_last_answer_along() {
     let ticket = world.ticket(&done.id());
     // Where he wrote or did not say yes: the answer in the words of its kind, "" when he only wrote.
     let before: Vec<Value> = ticket["items"].as_array().unwrap().iter().map(|item| item.get("before").cloned().unwrap_or(Value::Null)).collect();
-    assert_eq!(before, [json!({"at": 2.0, "answer": "нет", "note": "не понял что и почему здесь"}),
-                        json!({"at": 2.0, "answer": "", "note": "и ещё вот что"}), Value::Null]);
+    assert_eq!(before, [json!({"at": 2.0, "answer": "нет", "note": "не понял что и почему здесь", "text": "Какой вид у ссылки?"}),
+                        json!({"at": 2.0, "answer": "", "note": "и ещё вот что", "text": "Что ещё"}), Value::Null]);
     // The number is how his answer finds the item; a number of no check is no check.
     let done = asked(&["--check", "5. Номер в карточке", "--check", "1. Другое"]);
     assert_eq!(done.code, 64);

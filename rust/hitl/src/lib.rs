@@ -14,6 +14,7 @@ pub mod queue;
 pub mod setup;
 pub mod submit;
 pub mod tell;
+mod t3_mcp;
 pub mod verdict;
 pub mod window;
 
@@ -62,6 +63,7 @@ pub fn dispatch(arguments: Vec<String>) -> i32 {
             println!("{}", version());
             0
         }
+        "t3-connect" => t3_mcp::connect(&rest),
         "setup" => setup::main(&rest),
         "check" if rest == ["--presentation"] => names::main(),
         "check" => submit::main(&rest),

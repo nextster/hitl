@@ -85,7 +85,7 @@ fn bullet(text: &str) -> Option<String> {
 pub fn item_field(text: &str) -> Option<(String, String)> {
     let rest = text.trim_start();
     let lower = rest.to_lowercase();
-    for key in ["buttons", "button", "setup", "link"] {
+    for key in ["buttons", "button", "setup", "link", "mac-link"] {
         if lower.starts_with(key) && rest.is_char_boundary(key.len()) {
             let after = rest[key.len()..].trim_start();
             if let Some(value) = after.strip_prefix([':', '=']) {
@@ -124,7 +124,9 @@ pub fn parse_items(raw_items: &[String]) -> Vec<Value> {
         item.insert("text".into(), json!(text));
         for field in parts {
             let Some((key, value)) = item_field(field) else { continue };
-            if key == "link" {
+            if key == "mac-link" {
+                item.entry("macLinks").or_insert_with(|| json!([])).as_array_mut().expect("list").push(json!(value));
+            } else if key == "link" {
                 item.insert("link".into(), json!(value));
             } else {
                 let key = if key.starts_with("button") { "buttons" } else { "setup" };
@@ -198,9 +200,15 @@ pub fn base64url(bytes: &[u8]) -> String {
 /// touch the text.
 pub fn checklist_payload(ticket: &Value) -> String {
     let mut body = Map::new();
-    for key in ["id", "tag", "title", "items"] {
+    for key in ["id", "tag", "title"] {
         body.insert(key.into(), ticket.get(key).cloned().unwrap_or(Value::Null));
     }
+    if ticket["preparation"].is_object() { body.insert("requiresReadiness".into(), json!(true)); }
+    body.insert("items".into(), Value::Array(ticket["items"].as_array().into_iter().flatten().map(|item| {
+        let mut item = item.clone();
+        if let Some(fields) = item.as_object_mut() { fields.remove("macLinks"); }
+        item
+    }).collect()));
     // Which of his projects the build is of, by the name he knows: the band says it first, as the window does.
     let project = ticket.get("project").and_then(Value::as_str).filter(|project| !project.is_empty());
     if let Some(project) = project {
@@ -215,7 +223,11 @@ pub fn checklist_payload(ticket: &Value) -> String {
 /// Whether the built app knows the argument: its name is a string in the binary. A build from a branch without the
 /// overlay is checked by word.
 pub fn app_supports_checklist(app_path: &Path) -> bool {
-    let needle = CHECKLIST_ARGUMENT.as_bytes();
+    app_supports_argument(app_path, CHECKLIST_ARGUMENT)
+}
+
+pub fn app_supports_argument(app_path: &Path, argument: &str) -> bool {
+    let needle = argument.as_bytes();
     let mut files = Vec::new();
     collect_files(app_path, &mut files);
     for path in files {
@@ -326,6 +338,17 @@ mod tests {
         assert_eq!(title, "Бары внизу");
         assert_eq!(items, strings(&["1. Свайпни между экранами → футер меняется плавно и без рывка", "Шевроны фейдятся"]));
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn phone_payload_does_not_carry_mac_links() {
+        let raw = format!("1. Settings{FIELD_SEPARATOR}link=demo://settings{FIELD_SEPARATOR}mac-link=https://example.test/pr");
+        let items = parse_items(&[raw]);
+        assert_eq!(items[0]["macLinks"], json!(["https://example.test/pr"]));
+        let ticket = json!({"id": "1", "tag": "qa", "title": "Check", "items": items});
+        let payload: Value = serde_json::from_slice(&unbase64(&checklist_payload(&ticket))).unwrap();
+        assert_eq!(payload["items"][0]["link"], "demo://settings");
+        assert!(payload["items"][0].get("macLinks").is_none());
     }
 
     #[test]

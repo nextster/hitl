@@ -13,8 +13,8 @@ use std::path::PathBuf;
 pub const RECENT_LIMIT: usize = 30;
 
 /// The order and the words of a verdict, by the numbers of the items.
-pub const STATE_GROUPS: [(Option<&str>, &str); 4] =
-    [(Some("ok"), "Работает"), (Some("problem"), "Не работает"), (Some("skipped"), "Пропущено"), (None, "Без отметки")];
+pub const STATE_GROUPS: [(Option<&str>, &str); 5] =
+    [(Some("ok"), "Работает"), (Some("problem"), "Не работает"), (Some("skipped"), "Пропущено"), (Some("unclear"), "Шаг непонятен"), (None, "Без отметки")];
 
 /// The state of one phone, read and changed under a file lock.
 #[derive(Clone, Debug)]
@@ -84,6 +84,7 @@ impl Queue {
         let mut state = self.load();
         let before = state.clone();
         let result = change(&mut state);
+        crate::private_launch_env::prune(self, &state);
         if state != before {
             self.save(&state);
         }
@@ -107,6 +108,7 @@ impl Queue {
         let Ok(log) = std::fs::OpenOptions::new().create(true).append(true).open(self.folder.join("dispatcher.log")) else { return };
         let Ok(errors) = log.try_clone() else { return };
         let mut child = std::process::Command::new(entry());
+        crate::private_launch_env::configure_child(&mut child, &Default::default());
         child.args(["_queues", "dispatch", "--udid", &self.udid])
             .stdin(std::process::Stdio::null()).stdout(log).stderr(errors);
         // Its own session: the chat's tool call may end, time out or be killed with its process group, and the queue
@@ -262,7 +264,9 @@ pub fn count_marks(results: &[Value]) -> Value {
     let mut counts = Map::new();
     for (mark, _) in STATE_GROUPS {
         let count = results.iter().filter(|result| result.get("state").and_then(Value::as_str) == mark).count();
-        counts.insert(mark.unwrap_or("none").to_string(), json!(count));
+        if mark != Some("unclear") || count > 0 {
+            counts.insert(mark.unwrap_or("none").to_string(), json!(count));
+        }
     }
     Value::Object(counts)
 }
@@ -277,7 +281,7 @@ pub fn is_green(entry: &Value) -> bool {
     }
     if let Some(marks) = entry.get("marks").filter(|marks| marks.is_object()) {
         let count = |mark: &str| marks.get(mark).and_then(Value::as_i64).unwrap_or(0);
-        return count("ok") > 0 && ["problem", "skipped", "none"].iter().all(|mark| count(mark) == 0);
+        return count("ok") > 0 && ["problem", "skipped", "unclear", "none"].iter().all(|mark| count(mark) == 0);
     }
     // Checks logged before the marks were counted: their summary names every group that has an item in it, the
     // unmarked ones too.

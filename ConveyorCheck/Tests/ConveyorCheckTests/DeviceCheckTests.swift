@@ -17,6 +17,17 @@ import Testing
 
     private static let start = Date(timeIntervalSince1970: 1_791_380_000)
 
+    @Test func hostUnclearStepUsesTheCompatibleWireMark() throws {
+        let check = try #require(DeviceCheck(launchArgument: Self.argument))
+        var report = DeviceCheckReport(check: check, now: Self.start)
+        let host = try #require(DeviceCheckHost(fileData: Data("""
+        {"id":"\(check.id)","results":[{"label":"1","state":"skipped","unclear":true,"note":"Which button?","at":1791380020}]}
+        """.utf8)))
+        report.take(host, now: Self.start)
+        #expect(report.result(of: "1")?.state == .unclear)
+        #expect(report.result(of: "1")?.note == "Which button?")
+    }
+
     @Test func theHostsArgumentDecodesWithItsNumbersAndText() {
         #expect(DeviceCheck(launchArgument: Self.argument) == Self.check)
     }

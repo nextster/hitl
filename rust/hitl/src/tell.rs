@@ -1118,9 +1118,20 @@ fn hand_to_t3(path: &Path, record: &Value, text: &str) -> i32 {
     if write_json(path, &started).is_err() {
         return 1;
     }
+    let base = field_or_empty(record, "t3Base");
+    if let Some(route) = crate::t3_mcp::route(&base) {
+        let mut attempted = false;
+        if let Some(kind) = crate::t3_mcp::send(&route, &thread, text, &field_or_empty(record, "id"), &mut attempted) {
+            retire(&started, json!({"kind": kind}));
+            return 0;
+        }
+        // Once the tool call was issued, an absent receipt does not prove it failed.
+        if attempted {
+            return leave_for_wait(path, &started, "T3 Code не подтвердил приём итога через MCP.");
+        }
+    }
     let mut command = Command::new(program);
     command.args(["thread", "send", "--json"]);
-    let base = field_or_empty(record, "t3Base");
     if !base.is_empty() {
         command.args(["--base-dir", &base]);
     }

@@ -14,6 +14,7 @@ pub mod gate;
 pub mod iphone;
 pub mod items;
 pub mod lines;
+pub mod private_launch_env;
 pub mod state;
 pub mod verdict;
 
@@ -36,3 +37,5 @@ pub fn dispatch(command: &str, rest: &[String]) -> Option<i32> {
         _ => None,
     }
 }
+
+mod preparation;
