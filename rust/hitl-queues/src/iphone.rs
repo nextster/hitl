@@ -50,10 +50,13 @@ A hand check:
                            which one holds as a row of options, an action
                            done once as a symbol. Naming one action of a
                            switch or of a choice brings the whole button.
-  --check-link URL         A deep link offered as a button with that item,
-                           under its address.
+  --check-link URL         Deep link handled by the app on the iPhone, even
+                           when clicked from the Mac window.
+  --check-mac-link URL     HTTP(S) link opened on the Mac only, from the mirrored
+                           item. Use for a PR or other reference.
+                           Setup and app buttons always run on the iPhone.
   --checklist FILE         Checklist from a file: a title line, then one item
-                           per line; \"setup: …\", \"buttons: …\" and \"link: …\"
+                           per line; \"setup: …\", \"buttons: …\" and \"link: …\" and \"mac-link: …\"
                            lines under an item belong to it. Combines with
                            --check.
 
@@ -134,7 +137,7 @@ pub const IOS_RUN_VALUE_OPTIONS: [&str; 13] = [
 pub const TEST_OPTIONS: [&str; 5] = ["--test", "--test-without-building", "--only-testing", "--skip-testing", "--test-plan"];
 /// What does not put a build on the phone, so needs no word about why.
 pub const ASIDE_OPTIONS: [&str; 3] = ["--build-only", "--list-devices", "--list-simulators"];
-pub const ITEM_FIELDS: [(&str, &str); 3] = [("--check-setup", "setup"), ("--check-button", "buttons"), ("--check-link", "link")];
+pub const ITEM_FIELDS: [(&str, &str); 4] = [("--check-setup", "setup"), ("--check-button", "buttons"), ("--check-link", "link"), ("--check-mac-link", "mac-link")];
 pub const FORCED_QUEUE_COMMANDS: [&str; 5] = ["release", "drop", "first", "pause", "resume"];
 
 /// Whether what a link leads to is something to open (`common.is_address`): a path on this Mac, or a scheme and
@@ -221,7 +224,7 @@ impl Call {
                     call.checking = true;
                 }
                 "--check-title" => call.title = value(&mut index, "a value")?,
-                "--check-setup" | "--check-button" | "--check-link" => {
+                "--check-setup" | "--check-button" | "--check-link" | "--check-mac-link" => {
                     let field = value(&mut index, "a value")?;
                     let Some(last) = call.items.last_mut() else {
                         return die(format!("{argument} belongs to the --check before it: put it after one."));
@@ -750,10 +753,10 @@ mod tests {
     #[test]
     fn the_fields_of_an_item_are_joined_to_it_with_the_separator() {
         let given = call(&["--check", "1. Open settings", "--check-setup", "open-settings,dock-fold", "--check-button", "dock-unfold",
-                           "--check", "2. Open the main screen", "--check-link", "demo://screen/main"]);
+                           "--check", "2. Open the main screen", "--check-link", "demo://screen/main", "--check-mac-link", "https://example.test/pr"]);
         assert_eq!(given.items, vec![
             "1. Open settings\u{1f}setup=open-settings,dock-fold\u{1f}buttons=dock-unfold".to_string(),
-            "2. Open the main screen\u{1f}link=demo://screen/main".to_string(),
+            "2. Open the main screen\u{1f}link=demo://screen/main\u{1f}mac-link=https://example.test/pr".to_string(),
         ]);
         let early = Call::parse(&words("--check-setup open-settings --check x"));
         assert_eq!(early.err(), Some(Stop::Die("--check-setup belongs to the --check before it: put it after one.".into())));

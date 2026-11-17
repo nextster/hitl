@@ -50,6 +50,7 @@ let pageHeight: CGFloat = 680
 struct Before: Codable {
     var at: Double
     var answer: String
+    var text: String?
     var note: String?
 }
 
@@ -130,6 +131,7 @@ struct Mark: Codable {
     /// «Не понял»: the item is to be said again. Kept beside a "no", so that whatever knows nothing of this
     /// word reads a no, as it did when he typed «не понял» under one.
     var unclear: Bool?
+    var visualize: Bool?
     var note: String
     var question: Bool?
     var shots: [String]?
@@ -306,6 +308,8 @@ let unclearAnswer = "Не понял"
 let unclearKey = "0"
 /// What `mark` is called with for it, as -1 is his own answer to a question.
 let unclearNumber = -2
+let visualizeNumber = -3
+let visualizeKey = "-"
 /// Screenshots one comment can carry: as many as fit in a row under it.
 let mostShots = 4
 

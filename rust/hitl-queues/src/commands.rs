@@ -272,6 +272,13 @@ fn submit(queue: &Queue, given: &Submission) -> Result<Value, String> {
     if items.is_empty() {
         return Err("Error: a check needs at least one item: --check \"что сделать → что должно быть\".".into());
     }
+    if items.iter().flat_map(|item| item["macLinks"].as_array().into_iter().flatten()).any(|link| {
+        let link = link.as_str().unwrap_or_default();
+        link.chars().any(char::is_whitespace) || !link.split_once("://").is_some_and(|(scheme, rest)|
+            matches!(scheme, "http" | "https") && !rest.is_empty() && !rest.starts_with(['/', '?', '#']))
+    }) {
+        return Err("Error: --check-mac-link needs an HTTP(S) address.".into());
+    }
     let tag = {
         let tag = given.tag.trim();
         let branch = given.branch.trim();

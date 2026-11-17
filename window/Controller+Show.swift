@@ -47,12 +47,12 @@ extension Controller {
     }
     var itemKind: String? { kind(at: index) }
     var answers: [String] { Array((active?.items[index].answers ?? active?.answers ?? usualAnswers).prefix(states.count)) }
-    /// «Не понял» stands under the answers of every item, but not where it is there already, in an explanation,
-    /// and not in a check that is on the phone: its panel has three marks and knows no fourth.
+    /// Explanations already have a negative answer; checklist items need a separate unclear step.
     var offersUnclear: Bool {
         guard let ticket = active else { return false }
-        return !ticket.isOnPhone && itemKind != "explain"
+        return ticket.isOnPhone || itemKind != "explain"
     }
+    var offersVisualize: Bool { offersUnclear && active?.isOnPhone == false }
     var isEditingNote: Bool { panel.firstResponder === note.text }
     var hasKeyboard: Bool { scriptedKeyboard || panel.isKeyWindow }
 
@@ -116,6 +116,7 @@ extension Controller {
             case "action": tap.symbol = action.symbol
             default: break
             }
+            tap.toolTip = "Выполняется на iPhone"
             tap.setAccessibilityLabel(tap.said)
             tap.key = taken + number < 9 ? "⌘\(taken + number + 1)" : ""
             let went = trail(at: number)
@@ -130,6 +131,10 @@ extension Controller {
         for (number, link) in opens.enumerated() {
             let tap = Flat(number < own ? name(of: link) : ofChat[number - own].title)
             tap.opens = true
+            if active?.isOnPhone == true, number < own {
+                tap.trail = "На Маке"
+                tap.toolTip = "Открывается на Маке"
+            }
             let place = taken + onPhone.count + number
             tap.key = place < 9 ? "⌘\(place + 1)" : ""
             tap.press = { [weak self] in self?.open(link: number) }
@@ -268,6 +273,7 @@ extension Controller {
         switch mark.state {
         case "ok": return color
         case "problem": return mark.unclear == true ? Ink.unclear : mark.question == true ? color : Ink.no
+        case "unclear": return Ink.unclear
         case "skipped": return Ink.faint
         default: return nil
         }
@@ -332,6 +338,7 @@ extension Controller {
             clock.dateFormat = Calendar.current.isDateInToday(day) ? "'в' HH:mm" : "dd.MM 'в' HH:mm"
             before.said = ((was.answer.isEmpty ? "Ты написал " : "Ты ответил ") + clock.string(from: day) + (was.answer.isEmpty ? "" : ": " + was.answer),
                            was.note ?? "")
+            before.toolTip = [was.text.map { "Предыдущий вопрос: " + $0 }, was.note.flatMap { $0.isEmpty ? nil : "Твой комментарий: " + $0 }].compactMap { $0 }.joined(separator: "\n\n")
         }
         shown[ObjectIdentifier(before)] = item.before != nil
         details.said = item.details ?? ""
@@ -400,14 +407,33 @@ extension Controller {
             answerRows.append(other)
         }
         if offersUnclear {
-            let unclear = Row(unclearAnswer)
+            let unclear = Row(itemKind == "checklist" ? "Шаг непонятен" : unclearAnswer)
             unclear.key = unclearKey
-            unclear.chosen = mark.unclear == true ? Ink.unclear : nil
+            unclear.chosen = (mark.state == "unclear" || mark.unclear == true && mark.visualize != true) ? Ink.unclear : nil
             unclear.quiet = true
+            unclear.paired = offersVisualize
             unclear.press = { [weak self] in self?.mark(unclearNumber) }
-            answerRows.append(unclear)
+            if !offersVisualize {
+                answerRows.append(unclear)
+                answerRows.forEach { answersColumn.addArrangedSubview($0) }
+            } else {
+                let visualize = Row("Визуализировать")
+                visualize.key = visualizeKey
+                visualize.chosen = mark.visualize == true ? Ink.unclear : nil
+                visualize.quiet = true
+                visualize.paired = true
+                visualize.press = { [weak self] in self?.mark(visualizeNumber) }
+                answerRows.forEach { answersColumn.addArrangedSubview($0) }
+                let actions = NSStackView(views: [unclear, visualize])
+                actions.orientation = .horizontal
+                actions.distribution = .fillEqually
+                actions.spacing = 4
+                answersColumn.addArrangedSubview(actions)
+                answerRows += [unclear, visualize]
+            }
+        } else {
+            answerRows.forEach { answersColumn.addArrangedSubview($0) }
         }
-        answerRows.forEach { answersColumn.addArrangedSubview($0) }
         shown[ObjectIdentifier(several)] = isMany
         // The rows are new ones: a key held over the item is still held.
         held?.tap()?.isHeld = true

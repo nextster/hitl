@@ -843,7 +843,11 @@ pub fn show_in_window(queue: &Queue, ticket: &Value) {
     let path = window_ticket(text(ticket, "id"));
     if !path.exists() {
         let project = text(ticket, "project");
-        let items: Vec<Value> = ticket["items"].as_array().into_iter().flatten().map(|item| json!({"label": item["label"], "text": item["text"]})).collect();
+        let items: Vec<Value> = ticket["items"].as_array().into_iter().flatten().map(|item| {
+            let mut shown = json!({"label": item["label"], "text": item["text"]});
+            if let Some(links) = item.get("macLinks") { shown["links"] = links.clone(); }
+            shown
+        }).collect();
         let device = Some(queue.load()).and_then(|state| Some(text(&state, "name").to_string())).filter(|name| !name.is_empty()).unwrap_or_else(|| queue.udid.clone());
         let card = json!({
             "id": ticket["id"], "screen": "iphone", "device": device, "udid": queue.udid,

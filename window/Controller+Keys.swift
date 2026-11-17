@@ -174,9 +174,13 @@ extension Controller {
         case 48:  // tab: on, or back, without answering
             hold(event, { [weak self] in back ? self?.previous : self?.following }) { [weak self] in self?.step(back ? -1 : 1) }
         default:
+            if typed == visualizeKey, flags.intersection([.command, .option, .shift]).isEmpty, offersVisualize {
+                hold(event, { [weak self] in self?.answerRows.last }) { [weak self] in self?.mark(visualizeNumber) }
+                return true
+            }
             if typed == unclearKey, !flags.contains(.command), offersUnclear || (itemKind == "explain" && active?.isOnPhone != true && options.isEmpty && answers.count > 1) {
                 if offersUnclear {  // «не понял», the last row of every item
-                    hold(event, { [weak self] in self?.answerRows.last }) { [weak self] in self?.mark(unclearNumber) }
+                    hold(event, { [weak self] in self?.answerRows.first { $0.key == unclearKey } }) { [weak self] in self?.mark(unclearNumber) }
                 } else {  // an explanation says it with its own second answer, «не понятно»
                     hold(event, row(1)) { [weak self] in self?.mark(1) }
                 }

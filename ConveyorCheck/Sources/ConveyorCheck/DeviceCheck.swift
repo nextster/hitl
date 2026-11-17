@@ -235,7 +235,7 @@ public struct DeviceCheckReport: Codable, Equatable, Sendable {
         for theirs in host.results {
             guard let index = results.firstIndex(where: { $0.label == theirs.label }),
                   theirs.at > results[index].at ?? 0 else { continue }
-            let next = Result(label: theirs.label, state: theirs.state, note: theirs.note.flatMap { $0.isEmpty ? nil : $0 }, at: theirs.at)
+            let next = Result(label: theirs.label, state: theirs.unclear == true && theirs.state == .skipped ? .unclear : theirs.state, note: theirs.note.flatMap { $0.isEmpty ? nil : $0 }, at: theirs.at)
             guard next != results[index] else { continue }
             results[index] = next
             updatedAt = now
@@ -324,7 +324,10 @@ public struct DeviceCheckHost: Codable, Equatable, Sendable {
         /// When it was made, in seconds since 1970.
         public let at: Double
 
-        public init(label: String, state: CheckMark?, note: String?, at: Double) {
+        public let unclear: Bool?
+
+        public init(label: String, state: CheckMark?, note: String?, at: Double, unclear: Bool? = nil) {
+            self.unclear = unclear
             self.label = label
             self.state = state
             self.note = note

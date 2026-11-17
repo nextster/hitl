@@ -4,4 +4,5 @@ public enum CheckMark: String, Codable, CaseIterable, Sendable {
     case ok
     case problem
     case skipped
+    case unclear
 }

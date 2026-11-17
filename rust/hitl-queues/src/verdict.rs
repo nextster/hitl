@@ -27,9 +27,16 @@ pub fn said_on_the_mac(queue: &Queue, ticket: &Value) -> Option<Value> {
 pub fn for_the_phone(mine: &Value) -> Value {
     let results: Vec<Value> = mine.get("results").and_then(Value::as_array).into_iter().flatten()
         .filter(|entry| entry.is_object() && entry.get("label").is_some_and(Value::is_string) && hitl_host_core::truthy(entry.get("at")))
-        .map(|entry| json!({"label": entry["label"], "state": entry.get("state").cloned().unwrap_or(Value::Null),
-                            "note": if hitl_host_core::truthy(entry.get("note")) { entry["note"].clone() } else { Value::Null },
-                            "at": entry["at"]}))
+        .map(|entry| {
+            let mut result = json!({"label": entry["label"], "state": entry.get("state").cloned().unwrap_or(Value::Null),
+                "note": if hitl_host_core::truthy(entry.get("note")) { entry["note"].clone() } else { Value::Null }, "at": entry["at"]});
+            if entry["state"] == "unclear" {
+                // Older app builds only decode three marks. They can still show and finish the check.
+                result["state"] = json!("skipped");
+                result["unclear"] = json!(true);
+            }
+            result
+        })
         .collect();
     let mut said = Map::new();
     said.insert("id".into(), mine["id"].clone());
@@ -153,8 +160,9 @@ pub fn merge_report(ticket: &Value, report: Option<&Value>, mine: Option<&Value>
         let label = text_field(item, "label");
         let phone = reported.get(label).unwrap_or(&empty);
         let mac = typed.get(label).copied().unwrap_or(&empty);
-        let entry = if at_of(mac) > at_of(phone) { mac } else { phone };
-        let state = entry.get("state").and_then(Value::as_str).filter(|state| ["ok", "problem", "skipped"].contains(state));
+        let legacy_echo = mac["state"] == "unclear" && phone["state"] == "skipped" && at_of(mac) == at_of(phone);
+        let entry = if at_of(mac) > at_of(phone) || legacy_echo { mac } else { phone };
+        let state = entry.get("state").and_then(Value::as_str).filter(|state| ["ok", "problem", "skipped", "unclear"].contains(state));
         let note = entry.get("note").and_then(Value::as_str).filter(|note| !note.trim().is_empty());
         let mut result = Map::new();
         result.insert("label".into(), json!(label));
@@ -217,6 +225,9 @@ pub fn verdict_text(ticket: &Value, compact: bool) -> String {
                 lines.push(format!("{title}: {}", labels.join(", ")));
             }
         }
+    }
+    if items.iter().any(|item| item["state"] == "unclear") {
+        lines.push("Уточни непонятные шаги и поставь их на повторную проверку. Это не результат проверки приложения.".into());
     }
     let comments: Vec<(String, String)> = if compact { Vec::new() } else {
         items.iter().filter(|item| hitl_host_core::truthy(item.get("note")))
@@ -351,6 +362,27 @@ mod tests {
     fn ticket() -> Value {
         json!({"id": "t1", "tag": "r/38", "title": "Бары", "overlay": true,
                "items": [{"label": "1", "text": "Первый"}, {"label": "2", "text": "Второй"}, {"label": "3", "text": "Третий"}]})
+    }
+
+    #[test]
+    fn an_old_app_echo_cannot_erase_the_unclear_step() {
+        let ticket = json!({"id":"t", "items":[{"label":"1","text":"Tap +"}]});
+        let mine = json!({"id":"t","results":[{"label":"1","state":"unclear","note":"Where?","at":12}]});
+        let mut echo = for_the_phone(&mine);
+        assert_eq!(echo["results"][0]["state"], "skipped");
+        assert_eq!(echo["results"][0]["unclear"], true);
+        echo["results"][0].as_object_mut().unwrap().remove("unclear");
+        let merged = merge_report(&ticket, Some(&echo), Some(&mine));
+        assert_eq!(merged[0]["state"], "unclear");
+        assert_eq!(merged[0]["note"], "Where?");
+        assert_eq!(count_marks(&merged)["unclear"], 1);
+        let mut done = ticket.clone();
+        done["result"] = json!({"how":"phone", "items":merged});
+        let text = verdict_text(&done, true);
+        assert!(text.contains("1 шаг непонятен. «Where?»"));
+        assert!(text.contains("Уточни непонятные шаги"));
+        echo["results"][0]["at"] = json!(13);
+        assert_eq!(merge_report(&ticket, Some(&echo), Some(&mine))[0]["state"], "skipped");
     }
 
     #[test]

@@ -203,7 +203,7 @@ impl World {
         let results: Vec<Value> = items.iter().zip(states).map(|(item, state)| {
             let label = item["label"].as_str().unwrap_or("").to_string();
             let find = |pairs: &[(&str, &str)]| pairs.iter().find(|(at, _)| *at == label).map(|(_, value)| value.to_string());
-            json!({"label": label, "state": state, "choice": find(answers.choices), "note": find(answers.notes).unwrap_or_default(),
+            json!({"label": label, "text": item["text"], "state": state, "choice": find(answers.choices), "note": find(answers.notes).unwrap_or_default(),
                    "question": if item.get("options").is_some() { json!(true) } else { Value::Null },
                    "shots": answers.shots.iter().find(|(at, _)| *at == label).map(|(_, shots)| json!(shots)).unwrap_or(Value::Null)})
         }).collect();

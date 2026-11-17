@@ -8,6 +8,7 @@
 
 mod check_chat;
 mod checks;
+mod mac_check;
 
 use hitl_host_core::var;
 use serde_json::json;
@@ -135,7 +136,7 @@ fn hitl(arguments: Vec<String>) -> i32 {
         return 0;
     }
     // The «Чат» button is a setting; the checks that carry its address find the file there, written on the first.
-    if matches!(command, "check" | "iphone") {
+    if matches!(command, "check" | "iphone" | "mac") {
         hitl_host_core::chatbutton::ensure_setting(&hitl::common::env());
     }
     // One check on either screen: the window's (hitl) or a phone's (hitl-queues), as Python's checks.py chose.
@@ -148,8 +149,9 @@ fn hitl(arguments: Vec<String>) -> i32 {
         "last-check" => return checks::last_check(rest),
         _ => {}
     }
+    if command == "mac" { return mac_check::run(rest); }
     // The window's commands are hitl's, the one implementation of `hitl check` (his «да» of 2026-10-28).
-    if matches!(command, "check" | "setup" | "--version" | "version") {
+    if matches!(command, "check" | "setup" | "t3-connect" | "--version" | "version") {
         return hitl::dispatch(arguments);
     }
     // The messenger of a check, the window's and the phone's: hitl's, with the phone handed in above.

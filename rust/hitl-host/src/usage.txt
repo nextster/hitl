@@ -4,6 +4,8 @@ Usage:
   hitl setup --name NAME  Set the reviewer name and install the shared skill.
   hitl check ...       A check in the window on the Mac: a plan before big work, a question,
                            a result, something only he can do.
+  hitl t3-connect [--base-dir PATH]   Authorize direct local T3 delivery.
+  hitl mac [PROJECT] -- --title TEXT --check TEXT   Manual Mac app check in the shared Mac slot.
   hitl iphone ...      A build on the shared iPhone: for his hand check (--check) or for the
                            caller's own run (--probe).
   hitl phone [pair]    The window's queue in the companion iPhone app: what is known of

@@ -182,6 +182,7 @@ final class ChecklistMarksView: UIStackView {
 
     private static let marks: [(state: CheckMark, symbol: String, label: String)] = [
         (.ok, "checkmark", "Работает"), (.problem, "xmark", "Не работает"), (.skipped, "minus", "Пропустить"),
+        (.unclear, "questionmark", "Шаг непонятен"),
     ]
 
     private var buttons: [CheckMark: UIButton] = [:]
@@ -230,6 +231,7 @@ final class ChecklistMarksView: UIStackView {
             case .ok: .systemGreen
             case .problem: .systemRed
             case .skipped: .systemGray
+            case .unclear: .systemOrange
             }
             var configuration: UIButton.Configuration = selected ? .filled() : .tinted()
             configuration.image = UIImage(systemName: mark.symbol)
@@ -281,6 +283,7 @@ final class ChecklistProgressView: UIView {
             case .ok: .systemGreen
             case .problem: .systemRed
             case .skipped: .systemGray
+            case .unclear: .systemOrange
             case nil: isCurrent ? ChecklistPanelStyle.text : UIColor(white: 0.23, alpha: 1)
             }
             color.setFill()

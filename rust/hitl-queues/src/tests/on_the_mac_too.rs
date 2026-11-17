@@ -238,6 +238,19 @@ fn states(phone: &Value) -> Vec<Value> {
 }
 
 #[test]
+fn a_mac_link_is_only_in_the_mac_mirror() {
+    let mut case = Case::new("mac-only-link");
+    let url = "https://example.test/pull/42";
+    let item = format!("1. Open settings\u{1f}link=demo://settings\u{1f}mac-link={url}");
+    let id = case.submit("mac-link", &[&item]);
+    case.step();
+    let shown = read_json(&window_ticket_path(&id));
+    assert_eq!(shown["items"][0]["links"], json!([url]));
+    assert!(shown["items"][0].get("link").is_none());
+
+}
+
+#[test]
 fn the_check_on_the_phone_is_a_check_of_the_window_while_it_is_there() {
     let mut case = Case::new("mac-too-window");
     // The agent a call comes from is read from the environment: this test runs as OpenCode, whatever runs the tests.
